@@ -1,0 +1,18 @@
+flutter_native_splash:
+  color: "#F7F4EE"
+  color_dark: "#0B1020"
+  image: assets/branding/auralis_mark.png
+  image_dark: assets/branding/auralis_mark.png
+  android: true
+  ios: true
+  web: false
+  fullscreen: false
+  android_gravity: center
+  ios_content_mode: center
+  android_12:
+    color: "#F7F4EE"
+    color_dark: "#0B1020"
+    image: assets/branding/auralis_mark.png
+    image_dark: assets/branding/auralis_mark.png
+    icon_background_color: "#F7F4EE"
+    icon_background_color_dark: "#0B1020"
