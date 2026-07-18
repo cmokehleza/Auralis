@@ -60,6 +60,68 @@ class AlbumArtwork extends StatelessWidget {
   }
 }
 
+/// A soft-focus, low-resolution version of real album art for large backdrops.
+///
+/// Decoding at a deliberately small size creates the visual softness once the
+/// image is scaled up, without a live GPU blur that would cost frames while
+/// scrolling or animating the player.
+class AlbumArtworkBackdrop extends StatelessWidget {
+  const AlbumArtworkBackdrop({
+    super.key,
+    required this.colors,
+    required this.artworkId,
+  });
+
+  final List<Color> colors;
+  final int? artworkId;
+
+  @override
+  Widget build(BuildContext context) {
+    final fallback = DecoratedBox(
+      key: const ValueKey('artwork-backdrop-fallback'),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: colors,
+        ),
+      ),
+    );
+    final id = artworkId;
+    if (id == null) return fallback;
+    return FutureBuilder<Uint8List?>(
+      future: _ArtworkCache.load(id, 256),
+      builder: (context, snapshot) {
+        final bytes = snapshot.data;
+        return AnimatedSwitcher(
+          duration: AppMotion.duration(context, AppMotion.standard),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          layoutBuilder: (current, previous) =>
+              Stack(fit: StackFit.expand, children: [...previous, ?current]),
+          child: bytes == null || bytes.isEmpty
+              ? fallback
+              : Transform.scale(
+                  key: ValueKey('artwork-backdrop-$id'),
+                  scale: 1.08,
+                  child: Image.memory(
+                    bytes,
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    height: double.infinity,
+                    cacheWidth: 72,
+                    cacheHeight: 72,
+                    filterQuality: FilterQuality.high,
+                    gaplessPlayback: true,
+                    errorBuilder: (_, _, _) => fallback,
+                  ),
+                ),
+        );
+      },
+    );
+  }
+}
+
 class _ArtworkContent extends StatelessWidget {
   const _ArtworkContent({
     required this.artworkId,
@@ -73,9 +135,10 @@ class _ArtworkContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fallback = CustomPaint(
+    final fallback = SizedBox.square(
       key: ValueKey('fallback-${artworkId ?? Object.hashAll(colors)}'),
-      painter: _ArtworkPainter(colors),
+      dimension: size,
+      child: CustomPaint(painter: _ArtworkPainter(colors)),
     );
     final id = artworkId;
     if (id == null) return fallback;

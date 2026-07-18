@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'track.dart';
+
 @immutable
 class TrackBookmark {
   const TrackBookmark({
@@ -77,6 +79,40 @@ class PlaylistRule {
   final RuleField field;
   final RuleOperator operator;
   final String value;
+
+  bool matches(Track track) {
+    final actual = switch (field) {
+      RuleField.genre => track.genre,
+      RuleField.artist => track.artist,
+      RuleField.year => track.year.toString(),
+      RuleField.rating => track.rating.toString(),
+      RuleField.duration => (track.duration.inSeconds / 60).toStringAsFixed(2),
+    };
+    final expected = value.trim();
+    final actualLower = actual.toLowerCase();
+    final expectedLower = expected.toLowerCase();
+    if (operator == RuleOperator.equals) {
+      return actualLower == expectedLower;
+    }
+    if (operator == RuleOperator.contains) {
+      return actualLower.contains(expectedLower);
+    }
+
+    final actualNumber = switch (field) {
+      RuleField.year => track.year.toDouble(),
+      RuleField.rating => track.rating.toDouble(),
+      RuleField.duration => track.duration.inSeconds / 60,
+      _ => null,
+    };
+    final expectedNumber = double.tryParse(expected);
+    if (actualNumber == null || expectedNumber == null) return false;
+    return switch (operator) {
+      RuleOperator.greaterThan => actualNumber > expectedNumber,
+      RuleOperator.lessThan => actualNumber < expectedNumber,
+      RuleOperator.atLeast => actualNumber >= expectedNumber,
+      _ => false,
+    };
+  }
 
   Map<String, Object> toJson() => {
     'field': field.name,

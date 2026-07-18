@@ -4,8 +4,11 @@ import '../controllers/phase_two_controller.dart';
 import '../controllers/phase_three_controller.dart';
 import '../controllers/player_controller.dart';
 import '../models/advanced_models.dart';
+import '../models/phase_three_models.dart';
+import '../services/background_image_service.dart';
 import '../services/phase_three_services.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_background.dart';
 import 'phase_three_hub_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -39,6 +42,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return AnimatedBuilder(
       animation: Listenable.merge([
         widget.phaseTwo,
+        widget.phaseThree,
         widget.services.largeLibrary,
       ]),
       builder: (context, _) => ListView(
@@ -62,7 +66,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 12),
           ListTile(
-            tileColor: AppTheme.surface,
+            tileColor: AppTheme.surfaceOf(context),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
             ),
@@ -126,6 +130,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _SectionLabel('THEME', key: _themeKey),
           _Panel(
             children: [
+              _ValueSetting(
+                icon: Icons.wallpaper_rounded,
+                title: 'Background',
+                value: _backgroundLabel,
+                onTap: _showBackgroundSettings,
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Appearance',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: SegmentedButton<ThemeMode>(
+                        showSelectedIcon: false,
+                        segments: const [
+                          ButtonSegment(
+                            value: ThemeMode.system,
+                            label: Text('System'),
+                          ),
+                          ButtonSegment(
+                            value: ThemeMode.light,
+                            label: Text('Light'),
+                          ),
+                          ButtonSegment(
+                            value: ThemeMode.dark,
+                            label: Text('Dark'),
+                          ),
+                        ],
+                        selected: {widget.phaseTwo.themeMode},
+                        onSelectionChanged: (selection) =>
+                            widget.phaseTwo.setThemeMode(selection.single),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -244,20 +290,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
           const SizedBox(height: 24),
-          const Center(
+          Center(
             child: Column(
               children: [
-                Text(
+                const Text(
                   'AURALIS',
                   style: TextStyle(
                     letterSpacing: 2.5,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-                SizedBox(height: 4),
+                const SizedBox(height: 4),
                 Text(
-                  'Version 1.1 • Local music, stored on your device',
-                  style: TextStyle(fontSize: 11, color: AppTheme.muted),
+                  'Version 1.1.1 • Local music, stored on your device',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: AppTheme.mutedOf(context),
+                  ),
                 ),
               ],
             ),
@@ -284,10 +333,155 @@ class _SettingsScreenState extends State<SettingsScreen> {
     SleepTimerMode.endOfQueue => 'After queue',
   };
 
+  String get _backgroundLabel => switch (widget.phaseThree.backgroundMode) {
+    AppBackgroundMode.defaultTheme => 'Default',
+    AppBackgroundMode.dynamic => 'Dynamic',
+    AppBackgroundMode.customImage => 'Custom image',
+    AppBackgroundMode.theme => switch (widget.phaseThree.backgroundTheme) {
+      AppBackgroundTheme.aurora => 'Aurora',
+      AppBackgroundTheme.midnight => 'Midnight',
+      AppBackgroundTheme.sunset => 'Sunset',
+      AppBackgroundTheme.graphite => 'Graphite',
+    },
+  };
+
+  Future<void> _showBackgroundSettings() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.surfaceHighOf(context),
+      showDragHandle: true,
+      builder: (sheetContext) => AnimatedBuilder(
+        animation: widget.phaseThree,
+        builder: (sheetContext, _) {
+          final controller = widget.phaseThree;
+          final mode = controller.backgroundMode;
+          final hasCustom = controller.customBackgroundPath?.isNotEmpty == true;
+          return SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                    title: Text(
+                      'App background',
+                      style: Theme.of(sheetContext).textTheme.titleLarge,
+                    ),
+                    subtitle: const Text(
+                      'Wallpapers are dimmed automatically so controls stay readable.',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _BackgroundChoice(
+                    icon: Icons.auto_awesome_rounded,
+                    title: 'Dynamic',
+                    subtitle: 'Soft-focus artwork from the current song',
+                    selected: mode == AppBackgroundMode.dynamic,
+                    onTap: controller.setDynamicBackground,
+                  ),
+                  _BackgroundChoice(
+                    icon: Icons.photo_library_outlined,
+                    title: 'Custom image',
+                    subtitle: hasCustom
+                        ? 'Saved securely on this device'
+                        : 'Choose a photo from your device',
+                    selected: mode == AppBackgroundMode.customImage,
+                    onTap: hasCustom
+                        ? () => controller.setCustomBackground(
+                            controller.customBackgroundPath!,
+                          )
+                        : () => _pickCustomBackground(sheetContext),
+                    action: hasCustom
+                        ? IconButton(
+                            tooltip: 'Choose a different image',
+                            onPressed: () =>
+                                _pickCustomBackground(sheetContext),
+                            icon: const Icon(Icons.edit_outlined),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(height: 14),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Text(
+                      'SOLID / GRADIENT THEME',
+                      style: TextStyle(
+                        fontSize: 10,
+                        letterSpacing: 1.35,
+                        color: AppTheme.mutedOf(sheetContext),
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      for (final theme in AppBackgroundTheme.values)
+                        _BackgroundThemeChoice(
+                          theme: theme,
+                          selected:
+                              mode == AppBackgroundMode.theme &&
+                              controller.backgroundTheme == theme,
+                          onTap: () => controller.setThemeBackground(theme),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  OutlinedButton.icon(
+                    onPressed: mode == AppBackgroundMode.defaultTheme
+                        ? null
+                        : _resetBackground,
+                    icon: const Icon(Icons.restart_alt_rounded),
+                    label: const Text('Reset to Default'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _pickCustomBackground(BuildContext sheetContext) async {
+    try {
+      final path = await BackgroundImageService.pickAndStore();
+      if (path == null) return;
+      widget.phaseThree.setCustomBackground(path);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Custom background applied')),
+      );
+    } on Object catch (error) {
+      if (!mounted) return;
+      final message = error is FormatException
+          ? error.message
+          : 'Could not use that image. Please choose another one.';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message.toString())));
+    }
+  }
+
+  Future<void> _resetBackground() async {
+    final oldPath = widget.phaseThree.customBackgroundPath;
+    widget.phaseThree.resetBackground();
+    await BackgroundImageService.remove(oldPath);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Default background restored')),
+    );
+  }
+
   Future<void> _showSleepTimer() async {
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AppTheme.surfaceHigh,
+      backgroundColor: AppTheme.surfaceHighOf(context),
       showDragHandle: true,
       builder: (sheetContext) => SafeArea(
         child: Padding(
@@ -368,7 +562,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _showBackupRestore() async {
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AppTheme.surfaceHigh,
+      backgroundColor: AppTheme.surfaceHighOf(context),
       showDragHandle: true,
       builder: (sheetContext) => SafeArea(
         child: Padding(
@@ -382,7 +576,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: Theme.of(sheetContext).textTheme.titleLarge,
                 ),
                 subtitle: const Text(
-                  'Themes, bookmarks, custom tags, rules, and playlists',
+                  'Themes, favorites, bookmarks, tags, rules, and playlists',
                 ),
               ),
               ListTile(
@@ -391,9 +585,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onTap: () async {
                   Navigator.pop(sheetContext);
                   final path = await widget.phaseTwo.exportBackup();
-                  if (!mounted || path == null) return;
+                  if (!mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Backup exported')),
+                    SnackBar(
+                      content: Text(
+                        path == null ? 'Backup canceled' : 'Backup exported',
+                      ),
+                    ),
                   );
                 },
               ),
@@ -428,26 +626,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'Sleep timer': 'Playback',
       'Indexed music': 'Library',
       'Backup & restore': 'Library',
+      'Appearance (system, light, dark)': 'Theme',
       'Custom accent': 'Theme',
+      'Background and wallpaper': 'Theme',
       'Pause on disconnect': 'Hardware & safety',
       'Resume on reconnect': 'Hardware & safety',
       'Maximum volume': 'Hardware & safety',
       'Output profiles': 'Performance & connected devices',
       'Audio focus': 'Performance & connected devices',
-      'Mono downmix': 'Performance & connected devices',
-      'Speaker delay': 'Performance & connected devices',
-      'Crash recovery': 'Performance & connected devices',
       'Battery profiler': 'Performance & connected devices',
-      'Cue sheets': 'Performance & connected devices',
       'Linked tracks': 'Performance & connected devices',
       'Listening statistics': 'Performance & connected devices',
       'Local network sharing': 'Performance & connected devices',
       'Remote control': 'Performance & connected devices',
-      'Playlist collaboration': 'Performance & connected devices',
       'Language and RTL': 'Performance & connected devices',
       'Simplified mode': 'Performance & connected devices',
       'Synced lyrics': 'Performance & connected devices',
-      'Icon and splash': 'Performance & connected devices',
       'Library report': 'Performance & connected devices',
     };
     final selected = await showSearch<String?>(
@@ -542,10 +736,10 @@ class _SectionLabel extends StatelessWidget {
     padding: const EdgeInsets.only(left: 4, bottom: 9),
     child: Text(
       label,
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 10,
         letterSpacing: 1.5,
-        color: AppTheme.muted,
+        color: AppTheme.mutedOf(context),
         fontWeight: FontWeight.w800,
       ),
     ),
@@ -557,11 +751,11 @@ class _Panel extends StatelessWidget {
   final List<Widget> children;
   @override
   Widget build(BuildContext context) => Material(
-    color: AppTheme.surface,
+    color: AppTheme.surfaceOf(context),
     clipBehavior: Clip.antiAlias,
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(20),
-      side: BorderSide(color: Colors.white.withValues(alpha: .05)),
+      side: BorderSide(color: AppTheme.outlineOf(context)),
     ),
     child: Column(children: children),
   );
@@ -586,7 +780,7 @@ class _SettingSwitch extends StatelessWidget {
     title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
     subtitle: Text(
       subtitle,
-      style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+      style: TextStyle(color: AppTheme.mutedOf(context), fontSize: 12),
     ),
     value: value,
     onChanged: onChanged,
@@ -613,11 +807,11 @@ class _ValueSetting extends StatelessWidget {
       children: [
         Text(
           value,
-          style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+          style: TextStyle(color: AppTheme.mutedOf(context), fontSize: 12),
         ),
         if (onTap != null) ...[
           const SizedBox(width: 5),
-          const Icon(Icons.chevron_right_rounded, color: AppTheme.muted),
+          Icon(Icons.chevron_right_rounded, color: AppTheme.mutedOf(context)),
         ],
       ],
     ),
@@ -651,13 +845,142 @@ class _AccentChoice extends StatelessWidget {
           color: color,
           shape: BoxShape.circle,
           border: Border.all(
-            color: selected ? Colors.white : Colors.transparent,
+            color: selected
+                ? Theme.of(context).colorScheme.onSurface
+                : Colors.transparent,
             width: 3,
           ),
         ),
         child: selected
             ? const Icon(Icons.check_rounded, color: AppTheme.ink)
             : null,
+      ),
+    ),
+  );
+}
+
+class _BackgroundChoice extends StatelessWidget {
+  const _BackgroundChoice({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+    this.action,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Material(
+      color: selected
+          ? Theme.of(context).colorScheme.primary.withValues(alpha: .1)
+          : Theme.of(context).colorScheme.surfaceContainer,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: selected
+              ? Theme.of(context).colorScheme.primary.withValues(alpha: .55)
+              : AppTheme.outlineOf(context),
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: ListTile(
+        leading: Icon(
+          icon,
+          color: selected
+              ? Theme.of(context).colorScheme.primary
+              : AppTheme.mutedOf(context),
+        ),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+        subtitle: Text(subtitle),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ?action,
+            if (selected)
+              Icon(
+                Icons.check_circle_rounded,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+          ],
+        ),
+        selected: selected,
+        onTap: onTap,
+      ),
+    ),
+  );
+}
+
+class _BackgroundThemeChoice extends StatelessWidget {
+  const _BackgroundThemeChoice({
+    required this.theme,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final AppBackgroundTheme theme;
+  final bool selected;
+  final VoidCallback onTap;
+
+  String get label => switch (theme) {
+    AppBackgroundTheme.aurora => 'Aurora',
+    AppBackgroundTheme.midnight => 'Midnight',
+    AppBackgroundTheme.sunset => 'Sunset',
+    AppBackgroundTheme.graphite => 'Graphite',
+  };
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    selected: selected,
+    label: 'Use $label background',
+    child: InkWell(
+      key: ValueKey('background-theme-choice-${theme.name}'),
+      borderRadius: BorderRadius.circular(15),
+      onTap: onTap,
+      child: SizedBox(
+        width: 72,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              height: 58,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(15),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: backgroundThemeColors(theme),
+                ),
+                border: Border.all(
+                  color: selected
+                      ? Theme.of(context).colorScheme.primary
+                      : AppTheme.outlineOf(context),
+                  width: selected ? 3 : 1,
+                ),
+              ),
+              child: selected
+                  ? const Center(
+                      child: Icon(Icons.check_rounded, color: Colors.white),
+                    )
+                  : null,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              maxLines: 1,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
       ),
     ),
   );

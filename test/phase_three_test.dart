@@ -121,6 +121,49 @@ TRACK 02 AUDIO
     expect(csv, contains('"3","90"'));
   });
 
+  test(
+    'lightweight recovery cursor supersedes an older session position',
+    () async {
+      final controller = PhaseThreeController();
+      final library = [track(0), track(1)];
+      controller.saveRecoverySession(
+        queue: library,
+        currentId: 'track-0',
+        position: const Duration(seconds: 135),
+        screenIndex: 1,
+      );
+
+      await controller.saveRecoveryPosition(
+        'track-0',
+        const Duration(seconds: 80),
+      );
+
+      expect(controller.recoveryCurrentId, 'track-0');
+      expect(controller.recoveryPosition, const Duration(seconds: 80));
+      expect(controller.toJson()['recoveryPositionMs'], 80000);
+      controller.dispose();
+    },
+  );
+
+  test('recovery cursor rejects tracks outside the saved queue', () async {
+    final controller = PhaseThreeController();
+    controller.saveRecoverySession(
+      queue: [track(0)],
+      currentId: 'track-0',
+      position: const Duration(seconds: 42),
+      screenIndex: 0,
+    );
+
+    await controller.saveRecoveryPosition(
+      'not-in-queue',
+      const Duration(seconds: 99),
+    );
+
+    expect(controller.recoveryCurrentId, 'track-0');
+    expect(controller.recoveryPosition, const Duration(seconds: 42));
+    controller.dispose();
+  });
+
   test('manual counters and output profiles remain user-controlled', () {
     final controller = PhaseThreeController();
     controller.recordTrackStarted(track(1));
@@ -170,6 +213,48 @@ TRACK 02 AUDIO
     controller.dispose();
   });
 
+  test('queue reorder uses ReorderableListView destination semantics', () {
+    final controller = PlayerController([
+      track(0),
+      track(1),
+      track(2),
+      track(3),
+    ]);
+
+    controller.reorderQueue(1, 4);
+    expect(controller.queue.map((item) => item.id), [
+      'track-0',
+      'track-2',
+      'track-3',
+      'track-1',
+    ]);
+
+    controller.reorderQueue(3, 1);
+    expect(controller.queue.map((item) => item.id), [
+      'track-0',
+      'track-1',
+      'track-2',
+      'track-3',
+    ]);
+    controller.dispose();
+  });
+
+  test(
+    'queue recovery revision changes structurally, not on position ticks',
+    () {
+      final library = [track(0), track(1), track(2)];
+      final controller = PlayerController(library);
+      final initialRevision = controller.queueRevision;
+
+      controller.seek(const Duration(seconds: 12));
+      expect(controller.queueRevision, initialRevision);
+
+      controller.addNext(track(2));
+      expect(controller.queueRevision, initialRevision + 1);
+      controller.dispose();
+    },
+  );
+
   test(
     'user playlist CRUD is duplicate-free and survives JSON persistence',
     () {
@@ -215,11 +300,13 @@ TRACK 02 AUDIO
     controller.setAccent(accent);
     controller.setBitPerfect(false);
     controller.setGapless(false);
+    controller.setThemeMode(ThemeMode.light);
     controller.setHighContrast(true);
     controller.setWatchFolders(false);
 
     expect(controller.toJson(), containsPair('bitPerfect', false));
     expect(controller.toJson(), containsPair('gapless', false));
+    expect(controller.toJson(), containsPair('themeMode', 'light'));
     expect(controller.toJson(), containsPair('highContrast', true));
     expect(controller.toJson(), containsPair('watchFolders', false));
 
@@ -230,6 +317,66 @@ TRACK 02 AUDIO
       theme.navigationBarTheme.indicatorColor,
       accent.withValues(alpha: .13),
     );
+    final lightTheme = AppTheme.light(accent: accent, highContrast: true);
+    expect(lightTheme.brightness, Brightness.light);
+    expect(lightTheme.colorScheme.primary, accent);
+    expect(lightTheme.colorScheme.onPrimary, AppTheme.ink);
     controller.dispose();
+  });
+
+  test(
+    'silence skipping is opt-in and playlist rules evaluate real tracks',
+    () {
+      final controller = PhaseTwoController();
+      expect(controller.silenceCalibration, isFalse);
+      expect(controller.toJson(), containsPair('version', 2));
+
+      const jazzAfter2010 = [
+        PlaylistRule(
+          field: RuleField.genre,
+          operator: RuleOperator.equals,
+          value: 'jazz',
+        ),
+        PlaylistRule(
+          field: RuleField.year,
+          operator: RuleOperator.greaterThan,
+          value: '2010',
+        ),
+      ];
+      final matching = track(1).copyWith();
+      final actual = Track(
+        id: matching.id,
+        title: matching.title,
+        artist: matching.artist,
+        album: matching.album,
+        duration: matching.duration,
+        year: 2024,
+        genre: 'Jazz',
+        colors: matching.colors,
+      );
+      expect(jazzAfter2010.every((rule) => rule.matches(actual)), isTrue);
+      expect(
+        const PlaylistRule(
+          field: RuleField.duration,
+          operator: RuleOperator.atLeast,
+          value: '10',
+        ).matches(actual),
+        isFalse,
+      );
+      controller.dispose();
+    },
+  );
+
+  test('favorites persist through settings backup state', () {
+    final settings = PhaseTwoController();
+    final player = PlayerController([track(0), track(1)]);
+    player.onFavoritesChanged = settings.setFavoriteIds;
+
+    player.toggleFavorite(player.current);
+
+    expect(settings.favoriteIds, {'track-0'});
+    expect(settings.toJson()['favorites'], ['track-0']);
+    player.dispose();
+    settings.dispose();
   });
 }

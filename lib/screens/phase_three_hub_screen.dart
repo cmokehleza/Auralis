@@ -10,6 +10,7 @@ import '../models/phase_three_models.dart';
 import '../services/library_integrity_service.dart';
 import '../services/library_repository.dart';
 import '../services/home_widget_service.dart';
+import '../services/lyrics_service.dart';
 import '../services/phase_three_services.dart';
 import '../services/report_export_service.dart';
 import '../theme/app_theme.dart';
@@ -342,15 +343,19 @@ class _PhaseThreeHubScreenState extends State<PhaseThreeHubScreen> {
 
   Future<void> _rescan() async {
     final result = await widget.services.largeLibrary.rescanInBackground();
-    if (result.tracks.isNotEmpty) {
+    final succeeded = result.permissionGranted && result.error == null;
+    if (succeeded) {
       AlbumArtwork.clearMemoryCache();
       HomeWidgetService.clearArtworkCache();
       LibraryRepository.replaceWithDeviceTracks(result.tracks);
       widget.player.replaceLibrary(result.tracks);
     }
     setState(
-      () => _status =
-          '${result.tracks.length} tracks indexed without stopping playback.',
+      () => _status = result.error != null
+          ? 'Library scan failed. Playback and the existing library were kept.'
+          : !result.permissionGranted
+          ? 'Music permission is required to scan this phone.'
+          : '${result.tracks.length} tracks indexed without stopping playback.',
     );
   }
 
@@ -441,16 +446,14 @@ class _PhaseThreeHubScreenState extends State<PhaseThreeHubScreen> {
     const type = XTypeGroup(label: 'Synchronized lyrics', extensions: ['lrc']);
     final file = await openFile(acceptedTypeGroups: const [type]);
     if (file == null) return;
-    final lines = (await file.readAsString())
-        .split(RegExp(r'\r?\n'))
-        .where((line) => RegExp(r'^\[\d+:\d+').hasMatch(line.trim()))
-        .toList();
-    if (lines.isEmpty) {
+    final document = const LyricsService().parse(await file.readAsString());
+    if (document == null || !document.isSynced) {
       setState(
         () => _status = 'That file contains no synchronized lyric timestamps.',
       );
       return;
     }
+    final lines = document.toLrcLines();
     widget.player.updateTrack(
       widget.player.current.copyWith(syncedLyrics: lines),
     );
@@ -481,7 +484,7 @@ class _PhaseThreeHubScreenState extends State<PhaseThreeHubScreen> {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      backgroundColor: AppTheme.surfaceHigh,
+      backgroundColor: AppTheme.surfaceHighOf(context),
       builder: (context) => ListView(
         padding: const EdgeInsets.all(20),
         children: [
@@ -564,7 +567,7 @@ class _PhaseThreeHubScreenState extends State<PhaseThreeHubScreen> {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      backgroundColor: AppTheme.surfaceHigh,
+      backgroundColor: AppTheme.surfaceHighOf(context),
       builder: (context) => Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -623,12 +626,12 @@ class _PhaseThreeHubScreenState extends State<PhaseThreeHubScreen> {
   void _showChangelog() => showDialog<void>(
     context: context,
     builder: (context) => const AlertDialog(
-      title: Text("What's new in 1.1"),
+      title: Text("What's new in 1.1.1"),
       content: Text(
         '• Paged 100k+ library architecture\n'
         '• Queue and screen crash recovery\n'
         '• Output profiles and focus policies\n'
-        '• Cue sheets, linked tracks, and listening counters\n'
+        '• Linked tracks and listening counters\n'
         '• Local Wi-Fi sharing and remote control\n'
         '• RTL, simplified mode, synced lyrics, and reports',
       ),
@@ -640,9 +643,12 @@ class _PhaseThreeHubScreenState extends State<PhaseThreeHubScreen> {
       widget.services.largeLibrary.allTracks,
       widget.phaseThree.stats,
     );
-    if (mounted && path != null) {
-      setState(() => _status = 'Report exported to $path');
-    }
+    if (!mounted) return;
+    setState(
+      () => _status = path == null
+          ? 'Report export canceled.'
+          : 'Report exported to $path',
+    );
   }
 }
 
@@ -654,8 +660,8 @@ class _Label extends StatelessWidget {
     padding: const EdgeInsets.fromLTRB(5, 24, 5, 9),
     child: Text(
       text,
-      style: const TextStyle(
-        color: AppTheme.muted,
+      style: TextStyle(
+        color: AppTheme.mutedOf(context),
         fontSize: 11,
         fontWeight: FontWeight.w800,
         letterSpacing: 1.2,
@@ -670,7 +676,7 @@ class _Card extends StatelessWidget {
   @override
   Widget build(BuildContext context) => DecoratedBox(
     decoration: BoxDecoration(
-      color: AppTheme.surface,
+      color: AppTheme.surfaceOf(context),
       borderRadius: BorderRadius.circular(18),
     ),
     child: Column(children: children),

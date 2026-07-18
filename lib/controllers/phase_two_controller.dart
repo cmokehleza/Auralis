@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/advanced_models.dart';
+import '../services/platform_file_service.dart';
 
 class PhaseTwoController extends ChangeNotifier {
   PhaseTwoController({this._preferences});
@@ -17,6 +18,7 @@ class PhaseTwoController extends ChangeNotifier {
   final List<TrackBookmark> _bookmarks = [];
   final List<PlaylistRule> _playlistRules = [];
   final List<UserPlaylist> _userPlaylists = [];
+  final Set<String> _favoriteIds = {};
   final Map<String, Map<String, String>> _customTags = {};
   final Map<String, int> _resumePositionsMs = {};
   Timer? _sleepTimer;
@@ -32,6 +34,7 @@ class PhaseTwoController extends ChangeNotifier {
   bool _replayGain = true;
   bool _bitPerfect = true;
   bool _gapless = true;
+  ThemeMode _themeMode = ThemeMode.system;
   bool _highContrast = false;
   bool _watchFolders = true;
   double _volumeLimit = .85;
@@ -46,6 +49,7 @@ class PhaseTwoController extends ChangeNotifier {
   bool get replayGain => _replayGain;
   bool get bitPerfect => _bitPerfect;
   bool get gapless => _gapless;
+  ThemeMode get themeMode => _themeMode;
   bool get highContrast => _highContrast;
   bool get watchFolders => _watchFolders;
   double get volumeLimit => _volumeLimit;
@@ -53,6 +57,7 @@ class PhaseTwoController extends ChangeNotifier {
   List<TrackBookmark> get bookmarks => List.unmodifiable(_bookmarks);
   List<PlaylistRule> get playlistRules => List.unmodifiable(_playlistRules);
   List<UserPlaylist> get userPlaylists => List.unmodifiable(_userPlaylists);
+  Set<String> get favoriteIds => Set.unmodifiable(_favoriteIds);
 
   List<TrackBookmark> bookmarksFor(String trackId) =>
       _bookmarks.where((bookmark) => bookmark.trackId == trackId).toList();
@@ -109,6 +114,12 @@ class PhaseTwoController extends ChangeNotifier {
 
   void setGapless(bool value) {
     _gapless = value;
+    _changed();
+  }
+
+  void setThemeMode(ThemeMode value) {
+    if (_themeMode == value) return;
+    _themeMode = value;
     _changed();
   }
 
@@ -206,6 +217,18 @@ class PhaseTwoController extends ChangeNotifier {
     _changed();
   }
 
+  void setFavoriteIds(Iterable<String> trackIds) {
+    final updated = trackIds.toSet();
+    if (_favoriteIds.length == updated.length &&
+        _favoriteIds.every(updated.contains)) {
+      return;
+    }
+    _favoriteIds
+      ..clear()
+      ..addAll(updated);
+    _changed();
+  }
+
   void saveResumePosition(String trackId, Duration position) {
     _resumePositionsMs[trackId] = position.inMilliseconds;
     _saveDebounce?.cancel();
@@ -230,19 +253,12 @@ class PhaseTwoController extends ChangeNotifier {
     final bytes = Uint8List.fromList(
       utf8.encode(const JsonEncoder.withIndent('  ').convert(toJson())),
     );
-    const type = XTypeGroup(label: 'Auralis JSON backup', extensions: ['json']);
-    final location = await getSaveLocation(
+    return PlatformFileService.saveBytes(
+      bytes: bytes,
       suggestedName: 'auralis-backup.json',
-      acceptedTypeGroups: const [type],
-    );
-    if (location == null) return null;
-    final file = XFile.fromData(
-      bytes,
-      name: 'auralis-backup.json',
       mimeType: 'application/json',
+      extensions: const ['json'],
     );
-    await file.saveTo(location.path);
-    return location.path;
   }
 
   Future<bool> importBackup() async {
@@ -271,12 +287,14 @@ class PhaseTwoController extends ChangeNotifier {
     'replayGain': _replayGain,
     'bitPerfect': _bitPerfect,
     'gapless': _gapless,
+    'themeMode': _themeMode.name,
     'highContrast': _highContrast,
     'watchFolders': _watchFolders,
     'volumeLimit': _volumeLimit,
     'bookmarks': _bookmarks.map((item) => item.toJson()).toList(),
     'rules': _playlistRules.map((item) => item.toJson()).toList(),
     'playlists': _userPlaylists.map((item) => item.toJson()).toList(),
+    'favorites': _favoriteIds.toList(),
     'customTags': _customTags,
     'resumePositions': _resumePositionsMs,
   };
@@ -298,6 +316,11 @@ class PhaseTwoController extends ChangeNotifier {
     _replayGain = json['replayGain'] as bool? ?? true;
     _bitPerfect = json['bitPerfect'] as bool? ?? true;
     _gapless = json['gapless'] as bool? ?? true;
+    _themeMode = switch (json['themeMode']) {
+      'light' => ThemeMode.light,
+      'dark' => ThemeMode.dark,
+      _ => ThemeMode.system,
+    };
     _highContrast = json['highContrast'] as bool? ?? false;
     _watchFolders = json['watchFolders'] as bool? ?? true;
     _volumeLimit = (json['volumeLimit'] as num?)?.toDouble() ?? .85;
@@ -325,6 +348,9 @@ class PhaseTwoController extends ChangeNotifier {
               UserPlaylist.fromJson(Map<String, dynamic>.from(item as Map)),
         ),
       );
+    _favoriteIds
+      ..clear()
+      ..addAll((json['favorites'] as List? ?? const []).cast<String>());
     _customTags
       ..clear()
       ..addAll(

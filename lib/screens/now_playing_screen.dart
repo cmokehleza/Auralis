@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../controllers/phase_two_controller.dart';
@@ -10,9 +8,11 @@ import '../models/track.dart';
 import '../services/share_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/album_artwork.dart';
+import '../widgets/app_background.dart';
 import '../widgets/motion_icons.dart';
 import '../widgets/playlist_picker.dart';
 import '../widgets/spectrum_visualizer.dart';
+import '../widgets/synced_lyrics_view.dart';
 
 class NowPlayingScreen extends StatelessWidget {
   const NowPlayingScreen({
@@ -28,91 +28,115 @@ class NowPlayingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: player,
-      builder: (context, _) {
-        final track = player.current;
-        return Scaffold(
-          backgroundColor: AppTheme.ink,
-          body: Stack(
-            fit: StackFit.expand,
-            children: [
-              RepaintBoundary(child: _Atmosphere(colors: track.colors)),
-              SafeArea(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final landscape =
-                        constraints.maxWidth > constraints.maxHeight &&
-                        constraints.maxWidth >= 700;
-                    if (landscape) {
-                      return _LandscapePlayer(
-                        player: player,
-                        phaseTwo: phaseTwo,
-                        phaseThree: phaseThree,
-                        track: track,
-                        onArtLongPress: () => _showQuickActions(context, track),
-                      );
-                    }
-                    final compact = constraints.maxHeight < 720;
-                    final artSize = (constraints.maxWidth - 56).clamp(
-                      220.0,
-                      compact ? 300.0 : 360.0,
-                    );
-                    return SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          minHeight: constraints.maxHeight - 32,
-                        ),
-                        child: Column(
-                          children: [
-                            _TopBar(
-                              player: player,
-                              onMore: () => _showQuickActions(context, track),
+    return Theme(
+      data: AppTheme.dark(
+        accent: phaseTwo.accent,
+        highContrast: phaseTwo.highContrast,
+      ),
+      child: _ValueSelector<Track>(
+        listenable: player,
+        select: () => player.current,
+        builder: (context, track) {
+          return AppBackground(
+            player: player,
+            controller: phaseThree,
+            baseColor: AppTheme.ink,
+            defaultLayer: RepaintBoundary(
+              child: _Atmosphere(colors: track.colors),
+            ),
+            child: Scaffold(
+              backgroundColor: Colors.transparent,
+              body: Stack(
+                fit: StackFit.expand,
+                children: [
+                  SafeArea(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final landscape =
+                            constraints.maxWidth > constraints.maxHeight &&
+                            constraints.maxWidth >= 700;
+                        if (landscape) {
+                          return _LandscapePlayer(
+                            player: player,
+                            phaseTwo: phaseTwo,
+                            phaseThree: phaseThree,
+                            track: track,
+                            onArtLongPress: () =>
+                                _showQuickActions(context, track),
+                          );
+                        }
+                        final compact = constraints.maxHeight < 720;
+                        final artSize = (constraints.maxWidth - 56).clamp(
+                          220.0,
+                          compact ? 300.0 : 360.0,
+                        );
+                        return SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              minHeight: constraints.maxHeight - 32,
                             ),
-                            SizedBox(height: compact ? 16 : 28),
-                            GestureDetector(
-                              onLongPress: () =>
-                                  _showQuickActions(context, track),
-                              child: AlbumArtwork(
-                                colors: track.colors,
-                                artworkId: track.albumArtId,
-                                size: artSize,
-                                radius: 28,
-                                heroTag: 'current-art-${track.id}',
-                                transitionKey: track.id,
-                              ),
+                            child: Column(
+                              children: [
+                                _TopBar(
+                                  onMore: () =>
+                                      _showQuickActions(context, track),
+                                ),
+                                SizedBox(height: compact ? 16 : 28),
+                                GestureDetector(
+                                  onLongPress: () =>
+                                      _showQuickActions(context, track),
+                                  child: AlbumArtwork(
+                                    colors: track.colors,
+                                    artworkId: track.albumArtId,
+                                    size: artSize,
+                                    radius: 28,
+                                    heroTag: 'current-art-${track.id}',
+                                    transitionKey: track.id,
+                                  ),
+                                ),
+                                SizedBox(height: compact ? 22 : 34),
+                                _TrackHeading(track: track, player: player),
+                                const SizedBox(height: 8),
+                                _ValueSelector<bool>(
+                                  listenable: player,
+                                  select: () => player.isPlaying,
+                                  builder: (context, _) =>
+                                      SpectrumVisualizer(player: player),
+                                ),
+                                _InlineLyrics(
+                                  player: player,
+                                  phaseThree: phaseThree,
+                                  track: track,
+                                  topSpacing: 12,
+                                ),
+                                SizedBox(height: compact ? 14 : 24),
+                                _Progress(player: player),
+                                SizedBox(height: compact ? 8 : 16),
+                                _Transport(player: player),
+                                const SizedBox(height: 8),
+                                _PracticeTools(
+                                  player: player,
+                                  phaseTwo: phaseTwo,
+                                ),
+                                SizedBox(height: compact ? 10 : 18),
+                                _BottomActions(
+                                  player: player,
+                                  phaseThree: phaseThree,
+                                ),
+                              ],
                             ),
-                            SizedBox(height: compact ? 22 : 34),
-                            _TrackHeading(track: track, player: player),
-                            const SizedBox(height: 8),
-                            SpectrumVisualizer(player: player),
-                            if (phaseThree.showLyrics) ...[
-                              const SizedBox(height: 12),
-                              _SyncedLyrics(
-                                player: player,
-                                phaseThree: phaseThree,
-                              ),
-                            ],
-                            SizedBox(height: compact ? 14 : 24),
-                            _Progress(player: player),
-                            SizedBox(height: compact ? 8 : 16),
-                            _Transport(player: player),
-                            const SizedBox(height: 8),
-                            _PracticeTools(player: player, phaseTwo: phaseTwo),
-                            SizedBox(height: compact ? 10 : 18),
-                            _BottomActions(player: player),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-        );
-      },
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -164,6 +188,102 @@ class NowPlayingScreen extends StatelessWidget {
   }
 }
 
+/// Rebuilds only when the selected value changes, instead of on every
+/// notification emitted by a broad controller.
+class _ValueSelector<T> extends StatefulWidget {
+  const _ValueSelector({
+    required this.listenable,
+    required this.select,
+    required this.builder,
+  });
+
+  final Listenable listenable;
+  final T Function() select;
+  final Widget Function(BuildContext context, T value) builder;
+
+  @override
+  State<_ValueSelector<T>> createState() => _ValueSelectorState<T>();
+}
+
+class _ValueSelectorState<T> extends State<_ValueSelector<T>> {
+  late T _value;
+
+  @override
+  void initState() {
+    super.initState();
+    _value = widget.select();
+    widget.listenable.addListener(_handleChange);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ValueSelector<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.listenable != widget.listenable) {
+      oldWidget.listenable.removeListener(_handleChange);
+      widget.listenable.addListener(_handleChange);
+    }
+    // The selector can close over a new track after the shell changes.
+    _value = widget.select();
+  }
+
+  void _handleChange() {
+    final next = widget.select();
+    if (next == _value || !mounted) return;
+    setState(() => _value = next);
+  }
+
+  @override
+  void dispose() {
+    widget.listenable.removeListener(_handleChange);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _value);
+}
+
+class _InlineLyrics extends StatelessWidget {
+  const _InlineLyrics({
+    required this.player,
+    required this.phaseThree,
+    required this.track,
+    this.topSpacing = 0,
+  });
+
+  final PlayerController player;
+  final PhaseThreeController phaseThree;
+  final Track track;
+  final double topSpacing;
+
+  @override
+  Widget build(BuildContext context) {
+    return _ValueSelector<(bool, double, bool)>(
+      listenable: phaseThree,
+      select: () => (
+        phaseThree.showLyrics,
+        phaseThree.lyricsFontScale,
+        phaseThree.highContrastLyrics,
+      ),
+      builder: (context, lyricsSettings) {
+        if (!lyricsSettings.$1) return const SizedBox.shrink();
+        return Padding(
+          padding: EdgeInsets.only(top: topSpacing),
+          child: _ValueSelector<Duration>(
+            listenable: player,
+            select: () => player.position,
+            builder: (context, position) => SyncedLyricsView(
+              track: track,
+              position: position,
+              fontScale: lyricsSettings.$2,
+              highContrast: lyricsSettings.$3,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _LandscapePlayer extends StatelessWidget {
   const _LandscapePlayer({
     required this.player,
@@ -184,7 +304,7 @@ class _LandscapePlayer extends StatelessWidget {
     padding: const EdgeInsets.fromLTRB(20, 4, 28, 18),
     child: Column(
       children: [
-        _TopBar(player: player, onMore: onArtLongPress),
+        _TopBar(onMore: onArtLongPress),
         const SizedBox(height: 8),
         Expanded(
           child: Row(
@@ -221,9 +341,17 @@ class _LandscapePlayer extends StatelessWidget {
                     children: [
                       _TrackHeading(track: track, player: player),
                       const SizedBox(height: 8),
-                      SpectrumVisualizer(player: player, height: 46),
-                      if (phaseThree.showLyrics)
-                        _SyncedLyrics(player: player, phaseThree: phaseThree),
+                      _ValueSelector<bool>(
+                        listenable: player,
+                        select: () => player.isPlaying,
+                        builder: (context, _) =>
+                            SpectrumVisualizer(player: player, height: 46),
+                      ),
+                      _InlineLyrics(
+                        player: player,
+                        phaseThree: phaseThree,
+                        track: track,
+                      ),
                       const SizedBox(height: 10),
                       _Progress(player: player),
                       const SizedBox(height: 4),
@@ -231,7 +359,7 @@ class _LandscapePlayer extends StatelessWidget {
                       const SizedBox(height: 8),
                       _PracticeTools(player: player, phaseTwo: phaseTwo),
                       const SizedBox(height: 10),
-                      _BottomActions(player: player),
+                      _BottomActions(player: player, phaseThree: phaseThree),
                     ],
                   ),
                 ),
@@ -244,64 +372,6 @@ class _LandscapePlayer extends StatelessWidget {
   );
 }
 
-class _SyncedLyrics extends StatelessWidget {
-  const _SyncedLyrics({required this.player, required this.phaseThree});
-
-  final PlayerController player;
-  final PhaseThreeController phaseThree;
-
-  @override
-  Widget build(BuildContext context) {
-    final lines = player.current.syncedLyrics;
-    var active = 'No synchronized lyrics loaded for this track.';
-    if (lines.isNotEmpty) {
-      for (final line in lines) {
-        final match = RegExp(
-          r'^\[(\d+):(\d+)(?:\.(\d+))?\](.*)$',
-        ).firstMatch(line);
-        if (match == null) continue;
-        final at = Duration(
-          minutes: int.parse(match.group(1)!),
-          seconds: int.parse(match.group(2)!),
-          milliseconds:
-              int.tryParse((match.group(3) ?? '0').padRight(3, '0')) ?? 0,
-        );
-        if (at <= player.position) active = match.group(4)!.trim();
-      }
-    }
-    final foreground = phaseThree.highContrastLyrics
-        ? Colors.white
-        : AppTheme.muted;
-    return Semantics(
-      liveRegion: true,
-      label: 'Current lyric: $active',
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: phaseThree.highContrastLyrics
-              ? Colors.black
-              : AppTheme.surface.withValues(alpha: .72),
-          borderRadius: BorderRadius.circular(14),
-          border: phaseThree.highContrastLyrics
-              ? Border.all(color: Colors.white)
-              : null,
-        ),
-        child: Text(
-          active,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: foreground,
-            fontSize: 16 * phaseThree.lyricsFontScale,
-            height: 1.35,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _Atmosphere extends StatelessWidget {
   const _Atmosphere({required this.colors});
 
@@ -311,23 +381,19 @@ class _Atmosphere extends StatelessWidget {
   Widget build(BuildContext context) {
     return IgnorePointer(
       child: Stack(
+        fit: StackFit.expand,
         children: [
-          Positioned(
-            top: -180,
-            left: -100,
-            right: -100,
-            height: 520,
-            child: ImageFiltered(
-              imageFilter: ImageFilter.blur(sigmaX: 70, sigmaY: 70),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: RadialGradient(
-                    colors: [
-                      colors.first.withValues(alpha: .44),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: const Alignment(-.55, -.92),
+                radius: 1.08,
+                colors: [
+                  colors.first.withValues(alpha: .4),
+                  colors.last.withValues(alpha: .16),
+                  Colors.transparent,
+                ],
+                stops: const [0, .46, 1],
               ),
             ),
           ),
@@ -348,9 +414,8 @@ class _Atmosphere extends StatelessWidget {
 }
 
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.player, required this.onMore});
+  const _TopBar({required this.onMore});
 
-  final PlayerController player;
   final VoidCallback onMore;
 
   @override
@@ -422,14 +487,16 @@ class _TrackHeading extends StatelessWidget {
             ],
           ),
         ),
-        IconButton(
-          tooltip: player.isFavorite(track)
-              ? 'Remove from favorites'
-              : 'Add to favorites',
-          onPressed: () => player.toggleFavorite(track),
-          icon: AnimatedFavoriteIcon(
-            selected: player.isFavorite(track),
-            selectedColor: Theme.of(context).colorScheme.primary,
+        _ValueSelector<bool>(
+          listenable: player,
+          select: () => player.isFavorite(track),
+          builder: (context, isFavorite) => IconButton(
+            tooltip: isFavorite ? 'Remove from favorites' : 'Add to favorites',
+            onPressed: () => player.toggleFavorite(track),
+            icon: AnimatedFavoriteIcon(
+              selected: isFavorite,
+              selectedColor: Theme.of(context).colorScheme.primary,
+            ),
           ),
         ),
       ],
@@ -444,35 +511,47 @@ class _Progress extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final max = player.current.duration.inMilliseconds.toDouble();
-    final value = player.position.inMilliseconds
-        .clamp(0, max.toInt())
-        .toDouble();
-    return Column(
-      children: [
-        Slider(
-          value: value,
-          max: max,
-          onChanged: (value) =>
-              player.seek(Duration(milliseconds: value.round())),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 2),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                formatDuration(player.position),
-                style: const TextStyle(color: AppTheme.muted, fontSize: 11),
+    return _ValueSelector<(Duration, Duration)>(
+      listenable: player,
+      select: () => (player.position, player.current.duration),
+      builder: (context, timeline) {
+        final position = timeline.$1;
+        final duration = timeline.$2;
+        final durationMs = duration.inMilliseconds;
+        final max = durationMs <= 0 ? 1.0 : durationMs.toDouble();
+        final value = position.inMilliseconds
+            .clamp(0, durationMs <= 0 ? 1 : durationMs)
+            .toDouble();
+        final remaining = position >= duration
+            ? Duration.zero
+            : duration - position;
+        return Column(
+          children: [
+            Slider(
+              value: value,
+              max: max,
+              onChanged: (value) =>
+                  player.seek(Duration(milliseconds: value.round())),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    formatDuration(position),
+                    style: const TextStyle(color: AppTheme.muted, fontSize: 11),
+                  ),
+                  Text(
+                    '-${formatDuration(remaining)}',
+                    style: const TextStyle(color: AppTheme.muted, fontSize: 11),
+                  ),
+                ],
               ),
-              Text(
-                '-${formatDuration(player.current.duration - player.position)}',
-                style: const TextStyle(color: AppTheme.muted, fontSize: 11),
-              ),
-            ],
-          ),
-        ),
-      ],
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -484,55 +563,59 @@ class _Transport extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        IconButton(
-          tooltip: 'Shuffle',
-          onPressed: player.toggleShuffle,
-          icon: Icon(
-            Icons.shuffle_rounded,
-            color: player.shuffle
-                ? Theme.of(context).colorScheme.primary
-                : AppTheme.muted,
-          ),
-        ),
-        IconButton(
-          tooltip: 'Previous',
-          onPressed: player.previous,
-          icon: const Icon(Icons.skip_previous_rounded, size: 38),
-        ),
-        SizedBox.square(
-          dimension: 68,
-          child: FilledButton(
-            style: FilledButton.styleFrom(
-              shape: const CircleBorder(),
-              padding: EdgeInsets.zero,
-              backgroundColor: Colors.white,
-              foregroundColor: AppTheme.ink,
+    return _ValueSelector<(bool, bool, PlaybackRepeatMode)>(
+      listenable: player,
+      select: () => (player.shuffle, player.isPlaying, player.repeatMode),
+      builder: (context, transport) => Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          IconButton(
+            tooltip: 'Shuffle',
+            onPressed: player.toggleShuffle,
+            icon: Icon(
+              Icons.shuffle_rounded,
+              color: transport.$1
+                  ? Theme.of(context).colorScheme.primary
+                  : AppTheme.muted,
             ),
-            onPressed: player.togglePlay,
-            child: AnimatedPlayPauseIcon(isPlaying: player.isPlaying, size: 38),
           ),
-        ),
-        IconButton(
-          tooltip: 'Next',
-          onPressed: player.next,
-          icon: const Icon(Icons.skip_next_rounded, size: 38),
-        ),
-        IconButton(
-          tooltip: 'Repeat mode',
-          onPressed: player.cycleRepeat,
-          icon: Icon(
-            player.repeatMode == PlaybackRepeatMode.one
-                ? Icons.repeat_one_rounded
-                : Icons.repeat_rounded,
-            color: player.repeatMode == PlaybackRepeatMode.off
-                ? AppTheme.muted
-                : Theme.of(context).colorScheme.primary,
+          IconButton(
+            tooltip: 'Previous',
+            onPressed: player.previous,
+            icon: const Icon(Icons.skip_previous_rounded, size: 38),
           ),
-        ),
-      ],
+          SizedBox.square(
+            dimension: 68,
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                shape: const CircleBorder(),
+                padding: EdgeInsets.zero,
+                backgroundColor: Colors.white,
+                foregroundColor: AppTheme.ink,
+              ),
+              onPressed: player.togglePlay,
+              child: AnimatedPlayPauseIcon(isPlaying: transport.$2, size: 38),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Next',
+            onPressed: player.next,
+            icon: const Icon(Icons.skip_next_rounded, size: 38),
+          ),
+          IconButton(
+            tooltip: 'Repeat mode',
+            onPressed: player.cycleRepeat,
+            icon: Icon(
+              transport.$3 == PlaybackRepeatMode.one
+                  ? Icons.repeat_one_rounded
+                  : Icons.repeat_rounded,
+              color: transport.$3 == PlaybackRepeatMode.off
+                  ? AppTheme.muted
+                  : Theme.of(context).colorScheme.primary,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -545,41 +628,41 @@ class _PracticeTools extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      alignment: WrapAlignment.center,
-      spacing: 8,
-      children: [
-        ActionChip(
-          avatar: const Icon(Icons.looks_one_outlined, size: 17),
-          label: Text(
-            player.loopA == null ? 'Set A' : formatDuration(player.loopA!),
-          ),
-          onPressed: player.markLoopA,
-        ),
-        ActionChip(
-          avatar: const Icon(Icons.looks_two_outlined, size: 17),
-          label: Text(
-            player.loopB == null ? 'Set B' : formatDuration(player.loopB!),
-          ),
-          onPressed: player.loopA == null ? null : player.markLoopB,
-        ),
-        if (player.loopA != null)
+    return _ValueSelector<(Duration?, Duration?)>(
+      listenable: player,
+      select: () => (player.loopA, player.loopB),
+      builder: (context, loop) => Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 8,
+        children: [
           ActionChip(
-            avatar: const Icon(Icons.close_rounded, size: 17),
-            label: const Text('Clear A/B'),
-            onPressed: player.clearLoop,
+            avatar: const Icon(Icons.looks_one_outlined, size: 17),
+            label: Text(loop.$1 == null ? 'Set A' : formatDuration(loop.$1!)),
+            onPressed: player.markLoopA,
           ),
-        ActionChip(
-          avatar: const Icon(Icons.bookmark_add_outlined, size: 17),
-          label: const Text('Bookmark'),
-          onPressed: () => _bookmarks(context),
-        ),
-        ActionChip(
-          avatar: const Icon(Icons.bedtime_outlined, size: 17),
-          label: const Text('Sleep'),
-          onPressed: () => _sleepTimer(context),
-        ),
-      ],
+          ActionChip(
+            avatar: const Icon(Icons.looks_two_outlined, size: 17),
+            label: Text(loop.$2 == null ? 'Set B' : formatDuration(loop.$2!)),
+            onPressed: loop.$1 == null ? null : player.markLoopB,
+          ),
+          if (loop.$1 != null)
+            ActionChip(
+              avatar: const Icon(Icons.close_rounded, size: 17),
+              label: const Text('Clear A/B'),
+              onPressed: player.clearLoop,
+            ),
+          ActionChip(
+            avatar: const Icon(Icons.bookmark_add_outlined, size: 17),
+            label: const Text('Bookmark'),
+            onPressed: () => _bookmarks(context),
+          ),
+          ActionChip(
+            avatar: const Icon(Icons.bedtime_outlined, size: 17),
+            label: const Text('Sleep'),
+            onPressed: () => _sleepTimer(context),
+          ),
+        ],
+      ),
     );
   }
 
@@ -727,19 +810,24 @@ class _PracticeTools extends StatelessWidget {
 }
 
 class _BottomActions extends StatelessWidget {
-  const _BottomActions({required this.player});
+  const _BottomActions({required this.player, required this.phaseThree});
 
   final PlayerController player;
+  final PhaseThreeController phaseThree;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceAround,
       children: [
-        _Action(
-          icon: Icons.speed_rounded,
-          label: '${player.speed.toStringAsFixed(1)}×',
-          onTap: () => _showSpeed(context),
+        _ValueSelector<double>(
+          listenable: player,
+          select: () => player.speed,
+          builder: (context, speed) => _Action(
+            icon: Icons.speed_rounded,
+            label: '${speed.toStringAsFixed(1)}×',
+            onTap: () => _showSpeed(context),
+          ),
         ),
         _Action(
           icon: Icons.lyrics_outlined,
@@ -806,42 +894,48 @@ class _BottomActions extends StatelessWidget {
       backgroundColor: AppTheme.surfaceHigh,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (context) => SizedBox(
-        height: MediaQuery.sizeOf(context).height * .68,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 4, 24, 30),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Lyrics', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 8),
-              Text(
-                player.current.title,
-                style: const TextStyle(color: AppTheme.muted),
-              ),
-              const Spacer(),
-              Text(
-                'Light moves across the open floor',
-                style: Theme.of(
-                  context,
-                ).textTheme.headlineMedium?.copyWith(color: AppTheme.muted),
-              ),
-              const SizedBox(height: 22),
-              Text(
-                'Every quiet shape becomes a door',
-                style: Theme.of(
-                  context,
-                ).textTheme.headlineMedium?.copyWith(color: Colors.white),
-              ),
-              const SizedBox(height: 22),
-              Text(
-                'We follow where the evening goes',
-                style: Theme.of(
-                  context,
-                ).textTheme.headlineMedium?.copyWith(color: AppTheme.muted),
-              ),
-              const Spacer(),
-            ],
+      builder: (context) => _ValueSelector<Track>(
+        listenable: player,
+        select: () => player.current,
+        builder: (context, track) => SizedBox(
+          height: MediaQuery.sizeOf(context).height * .68,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 4, 24, 30),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Lyrics', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 8),
+                Text(
+                  track.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: AppTheme.muted),
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: _ValueSelector<(double, bool)>(
+                    listenable: phaseThree,
+                    select: () => (
+                      phaseThree.lyricsFontScale,
+                      phaseThree.highContrastLyrics,
+                    ),
+                    builder: (context, lyricsSettings) =>
+                        _ValueSelector<Duration>(
+                          listenable: player,
+                          select: () => player.position,
+                          builder: (context, position) => SyncedLyricsView(
+                            track: track,
+                            position: position,
+                            fontScale: lyricsSettings.$1,
+                            highContrast: lyricsSettings.$2,
+                            compact: false,
+                          ),
+                        ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -854,74 +948,95 @@ class _BottomActions extends StatelessWidget {
       backgroundColor: AppTheme.surfaceHigh,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (context) => AnimatedBuilder(
-        animation: player,
-        builder: (context, _) => SizedBox(
-          height: MediaQuery.sizeOf(context).height * .78,
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 4, 24, 14),
-                child: Row(
-                  children: [
-                    Text(
-                      'Up next',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const Spacer(),
-                    Text(
-                      '${player.queue.length} tracks',
-                      style: const TextStyle(color: AppTheme.muted),
-                    ),
-                  ],
+      builder: (context) => _ValueSelector<(String, int, int)>(
+        listenable: player,
+        select: () {
+          final queue = player.queue;
+          return (
+            player.current.id,
+            queue.length,
+            Object.hashAll(
+              queue.map(
+                (track) => Object.hash(
+                  track.id,
+                  track.title,
+                  track.artist,
+                  track.albumArtId,
                 ),
               ),
-              Expanded(
-                child: ReorderableListView.builder(
-                  padding: const EdgeInsets.only(bottom: 24),
-                  itemCount: player.queue.length,
-                  onReorderItem: player.reorderQueue,
-                  itemBuilder: (context, index) {
-                    final track = player.queue[index];
-                    final active = track.id == player.current.id;
-                    return ListTile(
-                      key: ValueKey(track.id),
-                      leading: AlbumArtwork(
-                        colors: track.colors,
-                        artworkId: track.albumArtId,
-                        size: 46,
-                        radius: 10,
+            ),
+          );
+        },
+        builder: (context, queueState) {
+          final queue = player.queue;
+          final currentId = queueState.$1;
+          return SizedBox(
+            height: MediaQuery.sizeOf(context).height * .78,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 4, 24, 14),
+                  child: Row(
+                    children: [
+                      Text(
+                        'Up next',
+                        style: Theme.of(context).textTheme.titleLarge,
                       ),
-                      title: Text(
-                        track.title,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: active
-                              ? Theme.of(context).colorScheme.primary
-                              : null,
-                        ),
-                      ),
-                      subtitle: Text(
-                        track.artist,
+                      const Spacer(),
+                      Text(
+                        '${queue.length} tracks',
                         style: const TextStyle(color: AppTheme.muted),
                       ),
-                      trailing: active
-                          ? Icon(
-                              Icons.graphic_eq_rounded,
-                              color: Theme.of(context).colorScheme.primary,
-                            )
-                          : const Icon(
-                              Icons.drag_handle_rounded,
-                              color: AppTheme.muted,
-                            ),
-                      onTap: () => player.playTrack(track),
-                    );
-                  },
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-        ),
+                Expanded(
+                  child: ReorderableListView.builder(
+                    padding: const EdgeInsets.only(bottom: 24),
+                    itemCount: queue.length,
+                    onReorderItem: player.reorderQueue,
+                    itemBuilder: (context, index) {
+                      final track = queue[index];
+                      final active = track.id == currentId;
+                      return ListTile(
+                        key: ValueKey(track.id),
+                        leading: AlbumArtwork(
+                          colors: track.colors,
+                          artworkId: track.albumArtId,
+                          size: 46,
+                          radius: 10,
+                        ),
+                        title: Text(
+                          track.title,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: active
+                                ? Theme.of(context).colorScheme.primary
+                                : null,
+                          ),
+                        ),
+                        subtitle: Text(
+                          track.artist,
+                          style: const TextStyle(color: AppTheme.muted),
+                        ),
+                        trailing: active
+                            ? Icon(
+                                Icons.graphic_eq_rounded,
+                                color: Theme.of(context).colorScheme.primary,
+                              )
+                            : const Icon(
+                                Icons.drag_handle_rounded,
+                                color: AppTheme.muted,
+                              ),
+                        onTap: () => player.playTrack(track),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -931,41 +1046,53 @@ class _BottomActions extends StatelessWidget {
       context: context,
       backgroundColor: AppTheme.surfaceHigh,
       showDragHandle: true,
-      builder: (context) => Padding(
-        padding: const EdgeInsets.fromLTRB(24, 4, 24, 30),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Audio output', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 20),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.phone_android_rounded),
-              title: const Text('This device'),
-              subtitle: Text(
-                player.current.isLossless
-                    ? 'Lossless source • Android-managed output'
-                    : 'Standard source • Android-managed output',
+      builder: (context) => _ValueSelector<(double, String, String, bool)>(
+        listenable: player,
+        select: () => (
+          player.volume,
+          player.outputProfileName,
+          player.current.id,
+          player.current.isLossless,
+        ),
+        builder: (context, audioState) => Padding(
+          padding: const EdgeInsets.fromLTRB(24, 4, 24, 30),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Audio output',
+                style: Theme.of(context).textTheme.titleLarge,
               ),
-              trailing: Icon(
-                Icons.check_circle_rounded,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ),
-            Row(
-              children: [
-                const Icon(Icons.volume_down_rounded, color: AppTheme.muted),
-                Expanded(
-                  child: Slider(
-                    value: player.volume,
-                    onChanged: player.setVolume,
-                  ),
+              const SizedBox(height: 20),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.phone_android_rounded),
+                title: Text(audioState.$2),
+                subtitle: Text(
+                  audioState.$4
+                      ? 'Lossless source • Android-managed output'
+                      : 'Standard source • Android-managed output',
                 ),
-                const Icon(Icons.volume_up_rounded, color: AppTheme.muted),
-              ],
-            ),
-          ],
+                trailing: Icon(
+                  Icons.check_circle_rounded,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+              Row(
+                children: [
+                  const Icon(Icons.volume_down_rounded, color: AppTheme.muted),
+                  Expanded(
+                    child: Slider(
+                      value: audioState.$1,
+                      onChanged: player.setVolume,
+                    ),
+                  ),
+                  const Icon(Icons.volume_up_rounded, color: AppTheme.muted),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

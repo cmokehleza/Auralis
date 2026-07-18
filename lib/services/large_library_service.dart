@@ -102,7 +102,7 @@ class LargeLibraryService extends ChangeNotifier {
     _scanning = true;
     notifyListeners();
     final result = await DeviceLibraryService().scan(retryPermission: true);
-    if (result.permissionGranted && result.tracks.isNotEmpty) {
+    if (result.permissionGranted && result.error == null) {
       replace(result.tracks);
     }
     _scanning = false;

@@ -131,17 +131,17 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
             const SizedBox(height: 8),
             if (_results.isEmpty)
-              const Padding(
-                padding: EdgeInsets.only(top: 50),
+              Padding(
+                padding: const EdgeInsets.only(top: 50),
                 child: Column(
                   children: [
                     Icon(
                       Icons.search_off_rounded,
                       size: 48,
-                      color: AppTheme.muted,
+                      color: AppTheme.mutedOf(context),
                     ),
-                    SizedBox(height: 14),
-                    Text(
+                    const SizedBox(height: 14),
+                    const Text(
                       'Nothing found',
                       style: TextStyle(
                         fontSize: 18,
@@ -223,13 +223,17 @@ class _EmptySearchLibrary extends StatelessWidget {
   const _EmptySearchLibrary();
 
   @override
-  Widget build(BuildContext context) => const Padding(
-    padding: EdgeInsets.only(top: 36),
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 36),
     child: Column(
       children: [
-        Icon(Icons.library_music_outlined, size: 48, color: AppTheme.muted),
-        SizedBox(height: 12),
-        Text('Scan your phone in Library before searching.'),
+        Icon(
+          Icons.library_music_outlined,
+          size: 48,
+          color: AppTheme.mutedOf(context),
+        ),
+        const SizedBox(height: 12),
+        const Text('Scan your phone in Library before searching.'),
       ],
     ),
   );

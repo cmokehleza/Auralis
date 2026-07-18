@@ -1,13 +1,44 @@
 package com.example.flutter_application_1
 
 import android.content.Intent
+import android.app.Activity
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : AudioServiceActivity() {
+    private val saveFileRequestCode = 7421
+    private var pendingSaveResult: MethodChannel.Result? = null
+    private var pendingSaveBytes: ByteArray? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.auralis.player/files")
+            .setMethodCallHandler { call, result ->
+                if (call.method != "saveFile") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                if (pendingSaveResult != null) {
+                    result.error("save_in_progress", "Another file is already being saved.", null)
+                    return@setMethodCallHandler
+                }
+                val bytes = call.argument<ByteArray>("bytes")
+                val suggestedName = call.argument<String>("suggestedName")
+                val mimeType = call.argument<String>("mimeType") ?: "application/octet-stream"
+                if (bytes == null || suggestedName.isNullOrBlank()) {
+                    result.error("invalid_file", "File data or name is missing.", null)
+                    return@setMethodCallHandler
+                }
+                pendingSaveResult = result
+                pendingSaveBytes = bytes
+                val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = mimeType
+                    putExtra(Intent.EXTRA_TITLE, suggestedName)
+                }
+                startActivityForResult(intent, saveFileRequestCode)
+            }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.auralis.player/share")
             .setMethodCallHandler { call, result ->
                 if (call.method != "shareText") {
@@ -45,5 +76,31 @@ class MainActivity : AudioServiceActivity() {
                 )
                 result.success(true)
             }
+    }
+
+    @Deprecated("Deprecated in Android, retained for Android 11 compatibility")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode != saveFileRequestCode) {
+            super.onActivityResult(requestCode, resultCode, data)
+            return
+        }
+        val result = pendingSaveResult
+        val bytes = pendingSaveBytes
+        pendingSaveResult = null
+        pendingSaveBytes = null
+        if (resultCode != Activity.RESULT_OK || data?.data == null) {
+            result?.success(null)
+            return
+        }
+        try {
+            val uri = data.data!!
+            contentResolver.openOutputStream(uri, "w")?.use { stream ->
+                stream.write(bytes ?: ByteArray(0))
+                stream.flush()
+            } ?: throw IllegalStateException("Could not open the selected document.")
+            result?.success(uri.toString())
+        } catch (error: Exception) {
+            result?.error("save_failed", error.message, null)
+        }
     }
 }

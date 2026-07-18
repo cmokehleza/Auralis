@@ -12,7 +12,8 @@
     <application
         android:label="Auralis"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
         <meta-data
             android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc" />
@@ -53,6 +54,11 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </receiver>
+        <provider
+            android:name=".NotificationArtworkProvider"
+            android:authorities="${applicationId}.notification_artwork"
+            android:exported="false"
+            android:grantUriPermissions="true" />
         <receiver
             android:name=".AuralisWidgetProvider"
             android:exported="true">

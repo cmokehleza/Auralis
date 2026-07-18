@@ -35,7 +35,7 @@ class AudioOutputDetectionService {
           device.type.name == 'bluetoothA2dp' ||
           device.type.name == 'bluetoothSco',
     )) {
-      return 'car';
+      return 'bluetooth';
     }
     if (outputs.any(
       (device) =>

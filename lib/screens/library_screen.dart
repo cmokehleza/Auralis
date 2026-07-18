@@ -77,6 +77,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       builder: (_) => PowerToolsScreen(
                         player: widget.player,
                         phaseTwo: widget.phaseTwo,
+                        library: widget.largeLibrary.allTracks,
                       ),
                     ),
                   ),
@@ -121,7 +122,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   library: widget.largeLibrary,
                   phaseTwo: widget.phaseTwo,
                 ),
-                const _FoldersTab(),
+                _FoldersTab(
+                  player: widget.player,
+                  library: widget.largeLibrary,
+                ),
               ],
             ),
           ),
@@ -134,7 +138,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
     setState(() => _scanning = true);
     final result = await widget.largeLibrary.rescanInBackground();
     if (!mounted) return;
-    if (result.tracks.isNotEmpty) {
+    final succeeded = result.permissionGranted && result.error == null;
+    if (succeeded) {
       AlbumArtwork.clearMemoryCache();
       HomeWidgetService.clearArtworkCache();
       LibraryRepository.replaceWithDeviceTracks(result.tracks);
@@ -191,10 +196,10 @@ class _TracksTab extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.library_music_outlined,
                     size: 48,
-                    color: AppTheme.muted,
+                    color: AppTheme.mutedOf(context),
                   ),
                   const SizedBox(height: 12),
                   const Text(
@@ -219,7 +224,7 @@ class _TracksTab extends StatelessWidget {
               padding: const EdgeInsets.all(14),
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
-                color: AppTheme.surface,
+                color: AppTheme.surfaceOf(context),
                 borderRadius: BorderRadius.circular(17),
               ),
               child: Row(
@@ -243,8 +248,8 @@ class _TracksTab extends StatelessWidget {
                         ),
                         Text(
                           '${library.totalCount} tracks • ${library.loadedCount} loaded',
-                          style: const TextStyle(
-                            color: AppTheme.muted,
+                          style: TextStyle(
+                            color: AppTheme.mutedOf(context),
                             fontSize: 11,
                           ),
                         ),
@@ -311,7 +316,7 @@ class _TracksTab extends StatelessWidget {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      backgroundColor: AppTheme.surfaceHigh,
+      backgroundColor: AppTheme.surfaceHighOf(context),
       builder: (context) => RadioGroup<String>(
         groupValue: group.preferredTrackId,
         onChanged: (value) {
@@ -410,7 +415,10 @@ class _AlbumsTab extends StatelessWidget {
                     : '${track.albumArtist ?? track.artist}${albumTracks.map((item) => item.discNumber).toSet().length > 1 ? ' • Multi-disc' : ''}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+                style: TextStyle(
+                  color: AppTheme.mutedOf(context),
+                  fontSize: 12,
+                ),
               ),
             ],
           ),
@@ -422,7 +430,7 @@ class _AlbumsTab extends StatelessWidget {
   void _albumActions(BuildContext context, Track track, List<Track> tracks) {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AppTheme.surfaceHigh,
+      backgroundColor: AppTheme.surfaceHighOf(context),
       showDragHandle: true,
       builder: (sheetContext) => SafeArea(
         child: Column(
@@ -488,22 +496,22 @@ class _PlaylistsTab extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         if (phaseTwo.userPlaylists.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 36),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 36),
             child: Column(
               children: [
                 Icon(
                   Icons.queue_music_rounded,
                   size: 44,
-                  color: AppTheme.muted,
+                  color: AppTheme.mutedOf(context),
                 ),
-                SizedBox(height: 12),
-                Text('No playlists yet'),
-                SizedBox(height: 4),
+                const SizedBox(height: 12),
+                const Text('No playlists yet'),
+                const SizedBox(height: 4),
                 Text(
                   'Create one, then add songs from any track menu.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: AppTheme.muted),
+                  style: TextStyle(color: AppTheme.mutedOf(context)),
                 ),
               ],
             ),
@@ -537,7 +545,7 @@ class _PlaylistsTab extends StatelessWidget {
               ),
               subtitle: Text(
                 '${tracks.length} tracks',
-                style: const TextStyle(color: AppTheme.muted),
+                style: TextStyle(color: AppTheme.mutedOf(context)),
               ),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => _openPlaylist(context, playlist, tracks),
@@ -552,7 +560,7 @@ class _PlaylistsTab extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppTheme.surfaceHigh,
+        backgroundColor: AppTheme.surfaceHighOf(context),
         title: const Text('New playlist'),
         content: TextField(
           controller: controller,
@@ -588,7 +596,7 @@ class _PlaylistsTab extends StatelessWidget {
   ) {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AppTheme.surfaceHigh,
+      backgroundColor: AppTheme.surfaceHighOf(context),
       showDragHandle: true,
       isScrollControlled: true,
       builder: (sheetContext) => SizedBox(
@@ -664,32 +672,117 @@ class _PlaylistsTab extends StatelessWidget {
 }
 
 class _FoldersTab extends StatelessWidget {
-  const _FoldersTab();
+  const _FoldersTab({required this.player, required this.library});
+
+  final PlayerController player;
+  final LargeLibraryService library;
+
   @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.all(20),
-    children: [
-      ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: Icon(
-          Icons.folder_rounded,
-          color: Theme.of(context).colorScheme.primary,
-          size: 34,
+  Widget build(BuildContext context) {
+    final grouped = <String, List<Track>>{};
+    for (final track in library.allTracks) {
+      final path = track.filePath;
+      if (path == null || path.isEmpty) continue;
+      final slash = path.lastIndexOf('/');
+      final backslash = path.lastIndexOf('\\');
+      final boundary = slash > backslash ? slash : backslash;
+      final folder = boundary > 0 ? path.substring(0, boundary) : path;
+      grouped.putIfAbsent(folder, () => []).add(track);
+    }
+    final folders = grouped.entries.toList()
+      ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
+
+    if (folders.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Text(
+            'No device folders are available yet. Scan this phone to index local music.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppTheme.mutedOf(context)),
+          ),
         ),
-        title: Text('Music', style: TextStyle(fontWeight: FontWeight.w700)),
-        subtitle: Text('Android MediaStore • automatically indexed'),
-        trailing: Icon(
-          Icons.check_circle_rounded,
-          color: Theme.of(context).colorScheme.primary,
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(20),
+      itemCount: folders.length,
+      itemBuilder: (context, index) {
+        final entry = folders[index];
+        final name = entry.key
+            .split(RegExp(r'[/\\]'))
+            .where((part) => part.isNotEmpty)
+            .lastOrNull;
+        return ListTile(
+          contentPadding: const EdgeInsets.symmetric(vertical: 4),
+          leading: Icon(
+            Icons.folder_rounded,
+            color: Theme.of(context).colorScheme.primary,
+            size: 34,
+          ),
+          title: Text(
+            name ?? entry.key,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          subtitle: Text(
+            '${entry.value.length} tracks • ${entry.key}',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () => _openFolder(context, name ?? entry.key, entry.value),
+        );
+      },
+    );
+  }
+
+  void _openFolder(BuildContext context, String name, List<Track> tracks) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SizedBox(
+        height: MediaQuery.sizeOf(sheetContext).height * .72,
+        child: Column(
+          children: [
+            ListTile(
+              title: Text(
+                name,
+                style: Theme.of(sheetContext).textTheme.titleLarge,
+              ),
+              subtitle: Text('${tracks.length} tracks'),
+              trailing: FilledButton.icon(
+                onPressed: () {
+                  player.playTrack(tracks.first, from: tracks);
+                  Navigator.pop(sheetContext);
+                },
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: const Text('Play'),
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                itemCount: tracks.length,
+                itemBuilder: (context, index) {
+                  final track = tracks[index];
+                  return ListTile(
+                    leading: AlbumArtwork(
+                      colors: track.colors,
+                      artworkId: track.albumArtId,
+                      size: 46,
+                      radius: 10,
+                    ),
+                    title: Text(track.title),
+                    subtitle: Text(track.artist),
+                    onTap: () => player.playTrack(track, from: tracks),
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
-      ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: Icon(Icons.usb_rounded, color: AppTheme.muted, size: 34),
-        title: Text('USB audio'),
-        subtitle: Text('Connect a drive to browse'),
-        trailing: Icon(Icons.chevron_right_rounded),
-      ),
-    ],
-  );
+    );
+  }
 }

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:file_selector/file_selector.dart';
 
 import '../models/phase_three_models.dart';
+import 'platform_file_service.dart';
 
 class PlaylistCollaborationService {
   const PlaylistCollaborationService();
@@ -29,22 +30,13 @@ class PlaylistCollaborationService {
   }
 
   Future<String?> exportFile(CollaborativePlaylist playlist) async {
-    const type = XTypeGroup(
-      label: 'Auralis collaborative playlist',
-      extensions: ['auralis-playlist'],
-    );
-    final location = await getSaveLocation(
-      suggestedName: '${_safeName(playlist.name)}.auralis-playlist',
-      acceptedTypeGroups: const [type],
-    );
-    if (location == null) return null;
-    final file = XFile.fromData(
-      Uint8List.fromList(utf8.encode(playlist.encode())),
-      name: '${_safeName(playlist.name)}.auralis-playlist',
+    final name = '${_safeName(playlist.name)}.auralis-playlist';
+    return PlatformFileService.saveBytes(
+      bytes: Uint8List.fromList(utf8.encode(playlist.encode())),
+      suggestedName: name,
       mimeType: 'application/json',
+      extensions: const ['auralis-playlist'],
     );
-    await file.saveTo(location.path);
-    return location.path;
   }
 
   Future<CollaborativePlaylist?> importFile() async {

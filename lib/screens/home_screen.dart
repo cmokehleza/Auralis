@@ -27,89 +27,94 @@ class HomeScreen extends StatelessWidget {
   final VoidCallback onOpenSettings;
 
   @override
-  Widget build(BuildContext context) {
-    final tracks = library.allTracks;
-    final albums = <String, Track>{};
-    for (final track in tracks) {
-      albums.putIfAbsent(track.album, () => track);
-    }
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: library,
+    builder: (context, _) {
+      final tracks = library.allTracks;
+      final albums = <String, Track>{};
+      for (final track in tracks) {
+        albums.putIfAbsent(track.album, () => track);
+      }
 
-    return CustomScrollView(
-      key: const PageStorageKey('home'),
-      slivers: [
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-          sliver: SliverList.list(
-            children: [
-              _Greeting(onSettings: onOpenSettings),
-              const SizedBox(height: 24),
-              if (tracks.isEmpty)
-                _EmptyLibrary(onScan: onOpenLibrary)
-              else ...[
-                _ResumeCard(player: player, fallback: tracks.first),
-                const SizedBox(height: 32),
-                _SectionHeader(
-                  title: 'Albums',
-                  action: 'View library',
-                  onTap: onOpenLibrary,
-                ),
-              ],
-            ],
-          ),
-        ),
-        if (tracks.isNotEmpty)
-          SliverToBoxAdapter(
-            child: SizedBox(
-              height: 210,
-              child: ListView.separated(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 14,
-                ),
-                scrollDirection: Axis.horizontal,
-                itemCount: albums.length.clamp(0, 8),
-                separatorBuilder: (_, _) => const SizedBox(width: 15),
-                itemBuilder: (context, index) {
-                  final track = albums.values.elementAt(index);
-                  final albumTracks = tracks
-                      .where((item) => item.album == track.album)
-                      .toList();
-                  return _AlbumCard(
-                    track: track,
-                    onTap: () =>
-                        player.playTrack(albumTracks.first, from: albumTracks),
-                  );
-                },
-              ),
-            ),
-          ),
-        if (tracks.isNotEmpty)
+      return CustomScrollView(
+        key: const PageStorageKey('home'),
+        slivers: [
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
             sliver: SliverList.list(
               children: [
-                _SectionHeader(
-                  title: 'On this device',
-                  action: 'See all',
-                  onTap: onOpenLibrary,
-                ),
-                const SizedBox(height: 8),
-                ...tracks
-                    .take(6)
-                    .map(
-                      (track) => TrackTile(
-                        track: track,
-                        player: player,
-                        phaseTwo: phaseTwo,
-                        onTap: () => player.playTrack(track, from: tracks),
-                      ),
-                    ),
+                _Greeting(onSettings: onOpenSettings),
+                const SizedBox(height: 24),
+                if (tracks.isEmpty)
+                  _EmptyLibrary(onScan: onOpenLibrary)
+                else ...[
+                  _ResumeCard(player: player, fallback: tracks.first),
+                  const SizedBox(height: 32),
+                  _SectionHeader(
+                    title: 'Albums',
+                    action: 'View library',
+                    onTap: onOpenLibrary,
+                  ),
+                ],
               ],
             ),
           ),
-      ],
-    );
-  }
+          if (tracks.isNotEmpty)
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: 210,
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 14,
+                  ),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: albums.length.clamp(0, 8),
+                  separatorBuilder: (_, _) => const SizedBox(width: 15),
+                  itemBuilder: (context, index) {
+                    final track = albums.values.elementAt(index);
+                    final albumTracks = tracks
+                        .where((item) => item.album == track.album)
+                        .toList();
+                    return _AlbumCard(
+                      track: track,
+                      onTap: () => player.playTrack(
+                        albumTracks.first,
+                        from: albumTracks,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          if (tracks.isNotEmpty)
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+              sliver: SliverList.list(
+                children: [
+                  _SectionHeader(
+                    title: 'On this device',
+                    action: 'See all',
+                    onTap: onOpenLibrary,
+                  ),
+                  const SizedBox(height: 8),
+                  ...tracks
+                      .take(6)
+                      .map(
+                        (track) => TrackTile(
+                          track: track,
+                          player: player,
+                          phaseTwo: phaseTwo,
+                          onTap: () => player.playTrack(track, from: tracks),
+                        ),
+                      ),
+                ],
+              ),
+            ),
+        ],
+      );
+    },
+  );
 }
 
 class _Greeting extends StatelessWidget {
@@ -165,7 +170,7 @@ class _EmptyLibrary extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(24),
     decoration: BoxDecoration(
-      color: AppTheme.surface,
+      color: AppTheme.surfaceOf(context),
       borderRadius: BorderRadius.circular(24),
     ),
     child: Column(
@@ -181,10 +186,10 @@ class _EmptyLibrary extends StatelessWidget {
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: 6),
-        const Text(
+        Text(
           'Open Library and scan this phone to add local music.',
           textAlign: TextAlign.center,
-          style: TextStyle(color: AppTheme.muted),
+          style: TextStyle(color: AppTheme.mutedOf(context)),
         ),
         const SizedBox(height: 18),
         FilledButton.icon(
@@ -215,9 +220,9 @@ class _ResumeCard extends StatelessWidget {
       return Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: AppTheme.surface,
+          color: AppTheme.surfaceOf(context),
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.white.withValues(alpha: .06)),
+          border: Border.all(color: AppTheme.outlineOf(context)),
         ),
         child: Row(
           children: [
@@ -235,10 +240,10 @@ class _ResumeCard extends StatelessWidget {
                 children: [
                   Text(
                     progress > 0 ? 'CONTINUE LISTENING' : 'READY TO PLAY',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 9,
                       letterSpacing: 1.2,
-                      color: AppTheme.muted,
+                      color: AppTheme.mutedOf(context),
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -254,7 +259,7 @@ class _ResumeCard extends StatelessWidget {
                     track.artist,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: AppTheme.muted),
+                    style: TextStyle(color: AppTheme.mutedOf(context)),
                   ),
                   const SizedBox(height: 14),
                   Row(
@@ -266,7 +271,7 @@ class _ResumeCard extends StatelessWidget {
                             value: progress.clamp(0, 1),
                             minHeight: 3,
                             color: Theme.of(context).colorScheme.primary,
-                            backgroundColor: const Color(0xFF32363C),
+                            backgroundColor: AppTheme.outlineOf(context),
                           ),
                         ),
                       ),
@@ -278,8 +283,12 @@ class _ResumeCard extends StatelessWidget {
                               ? 'Pause'
                               : 'Play',
                           style: IconButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: AppTheme.ink,
+                            backgroundColor: Theme.of(
+                              context,
+                            ).colorScheme.primary,
+                            foregroundColor: Theme.of(
+                              context,
+                            ).colorScheme.onPrimary,
                             padding: EdgeInsets.zero,
                           ),
                           onPressed: isCurrent
@@ -356,7 +365,7 @@ class _AlbumCard extends StatelessWidget {
             track.artist,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+            style: TextStyle(color: AppTheme.mutedOf(context), fontSize: 12),
           ),
         ],
       ),

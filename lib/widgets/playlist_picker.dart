@@ -12,7 +12,7 @@ Future<void> showAddTracksToPlaylist(
   if (tracks.isEmpty) return;
   final selectedId = await showModalBottomSheet<String>(
     context: context,
-    backgroundColor: AppTheme.surfaceHigh,
+    backgroundColor: AppTheme.surfaceHighOf(context),
     showDragHandle: true,
     builder: (sheetContext) => SafeArea(
       child: AnimatedBuilder(
@@ -39,11 +39,11 @@ Future<void> showAddTracksToPlaylist(
               },
             ),
             if (phaseTwo.userPlaylists.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(16),
+              Padding(
+                padding: const EdgeInsets.all(16),
                 child: Text(
                   'No playlists yet.',
-                  style: TextStyle(color: AppTheme.muted),
+                  style: TextStyle(color: AppTheme.mutedOf(context)),
                 ),
               )
             else

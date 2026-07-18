@@ -28,6 +28,9 @@ class MiniPlayer extends StatelessWidget {
       animation: player,
       builder: (context, _) {
         final track = player.current;
+        if (track.isEmpty) {
+          return const SizedBox.shrink(key: ValueKey('mini-player-empty'));
+        }
         if (player.playbackError != null) {
           return Material(
             color: Theme.of(context).colorScheme.errorContainer,
@@ -59,11 +62,19 @@ class MiniPlayer extends StatelessWidget {
             ),
           );
         }
-        final progress =
-            player.position.inMilliseconds /
-            player.current.duration.inMilliseconds;
+        final durationMs = track.duration.inMilliseconds;
+        final progress = durationMs <= 0
+            ? 0.0
+            : player.position.inMilliseconds / durationMs;
         return Material(
-          color: const Color(0xFF191D22),
+          key: const ValueKey('mini-player-content'),
+          color: phaseThree.backgroundMode.name == 'defaultTheme'
+              ? AppTheme.surfaceHighOf(context)
+              : AppTheme.surfaceHighOf(context).withValues(
+                  alpha: Theme.of(context).brightness == Brightness.dark
+                      ? .76
+                      : .88,
+                ),
           child: InkWell(
             onTap: () => Navigator.of(context).push(
               AppMotion.playerRoute<void>(
@@ -92,25 +103,47 @@ class MiniPlayer extends StatelessWidget {
                       ),
                     ),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            track.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.w700),
+                      child: AnimatedSwitcher(
+                        duration: AppMotion.duration(
+                          context,
+                          AppMotion.standard,
+                        ),
+                        switchInCurve: Curves.easeOutCubic,
+                        switchOutCurve: Curves.easeInCubic,
+                        transitionBuilder: (child, animation) => FadeTransition(
+                          opacity: animation,
+                          child: SlideTransition(
+                            position: Tween<Offset>(
+                              begin: const Offset(.025, 0),
+                              end: Offset.zero,
+                            ).animate(animation),
+                            child: child,
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${track.artist}  •  ${track.isLossless ? 'Hi-Res' : 'AAC'}',
-                            maxLines: 1,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: AppTheme.muted,
+                        ),
+                        child: Column(
+                          key: ValueKey('mini-metadata-${track.id}'),
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              track.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 2),
+                            Text(
+                              '${track.artist}  •  ${track.isLossless ? 'Hi-Res' : 'AAC'}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.mutedOf(context),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     Padding(
@@ -120,7 +153,7 @@ class MiniPlayer extends StatelessWidget {
                         width: 26,
                         height: 22,
                         barCount: 3,
-                        continuous: false,
+                        continuous: true,
                       ),
                     ),
                     IconButton(
@@ -133,8 +166,12 @@ class MiniPlayer extends StatelessWidget {
                       child: IconButton.filled(
                         tooltip: player.isPlaying ? 'Pause' : 'Play',
                         style: IconButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: AppTheme.ink,
+                          backgroundColor: Theme.of(
+                            context,
+                          ).colorScheme.primary,
+                          foregroundColor: Theme.of(
+                            context,
+                          ).colorScheme.onPrimary,
                         ),
                         onPressed: player.togglePlay,
                         icon: AnimatedPlayPauseIcon(
@@ -148,7 +185,7 @@ class MiniPlayer extends StatelessWidget {
                   value: progress.clamp(0, 1),
                   minHeight: 2,
                   color: Theme.of(context).colorScheme.primary,
-                  backgroundColor: const Color(0xFF32363C),
+                  backgroundColor: AppTheme.outlineOf(context),
                 ),
               ],
             ),

@@ -74,7 +74,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               children: [
                 Text(
                   '${_index + 1} / 2',
-                  style: const TextStyle(color: AppTheme.muted),
+                  style: TextStyle(color: AppTheme.mutedOf(context)),
                 ),
                 const Spacer(),
                 FilledButton(
@@ -124,7 +124,7 @@ class _OnboardingPage extends StatelessWidget {
         Text(
           body,
           textAlign: TextAlign.center,
-          style: const TextStyle(color: AppTheme.muted, height: 1.5),
+          style: TextStyle(color: AppTheme.mutedOf(context), height: 1.5),
         ),
         if (action != null) ...[const SizedBox(height: 24), action!],
       ],

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../controllers/phase_two_controller.dart';
 import '../controllers/player_controller.dart';
 import '../models/advanced_models.dart';
+import '../models/track.dart';
 import '../services/audio_fingerprint_service.dart';
 import '../theme/app_theme.dart';
 
@@ -11,10 +12,12 @@ class PowerToolsScreen extends StatefulWidget {
     super.key,
     required this.player,
     required this.phaseTwo,
+    required this.library,
   });
 
   final PlayerController player;
   final PhaseTwoController phaseTwo;
+  final List<Track> library;
 
   @override
   State<PowerToolsScreen> createState() => _PowerToolsScreenState();
@@ -31,7 +34,7 @@ class _PowerToolsScreenState extends State<PowerToolsScreen> {
       builder: (context, _) => Scaffold(
         appBar: AppBar(
           title: const Text('Power tools'),
-          backgroundColor: AppTheme.ink,
+          backgroundColor: AppTheme.backgroundOf(context),
         ),
         body: ListView(
           padding: const EdgeInsets.fromLTRB(20, 10, 20, 30),
@@ -72,10 +75,16 @@ class _PowerToolsScreenState extends State<PowerToolsScreen> {
                       style: TextStyle(fontWeight: FontWeight.w700),
                     ),
                     subtitle: Text(
-                      'Mood, instrument, notes • ${widget.player.current.title}',
+                      widget.player.current.isEmpty
+                          ? 'Play a track before adding personal tags'
+                          : 'Mood, instrument, notes • ${widget.player.current.title}',
                     ),
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: _editCustomTags,
+                    trailing: widget.player.current.isEmpty
+                        ? null
+                        : const Icon(Icons.chevron_right_rounded),
+                    onTap: widget.player.current.isEmpty
+                        ? null
+                        : _editCustomTags,
                   ),
                 ],
               ),
@@ -89,9 +98,9 @@ class _PowerToolsScreenState extends State<PowerToolsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (widget.phaseTwo.playlistRules.isEmpty)
-                      const Text(
+                      Text(
                         'No conditions yet. Add conditions such as genre = Jazz AND rating ≥ 4.',
-                        style: TextStyle(color: AppTheme.muted),
+                        style: TextStyle(color: AppTheme.mutedOf(context)),
                       )
                     else
                       ...widget.phaseTwo.playlistRules.indexed.map(
@@ -106,7 +115,7 @@ class _PowerToolsScreenState extends State<PowerToolsScreen> {
                             ),
                           ),
                           title: Text(
-                            '${entry.$2.field.name} ${entry.$2.operator.name} ${entry.$2.value}',
+                            '${_fieldLabel(entry.$2.field)} ${_operatorLabel(entry.$2.operator).toLowerCase()} ${entry.$2.value}',
                           ),
                           trailing: IconButton(
                             onPressed: () =>
@@ -121,6 +130,34 @@ class _PowerToolsScreenState extends State<PowerToolsScreen> {
                       icon: const Icon(Icons.add_rounded),
                       label: const Text('Add condition'),
                     ),
+                    if (widget.phaseTwo.playlistRules.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        '${_ruleMatches.length} matching tracks',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 8,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: _ruleMatches.isEmpty
+                                ? null
+                                : _showRuleMatches,
+                            icon: const Icon(Icons.visibility_outlined),
+                            label: const Text('Preview matches'),
+                          ),
+                          FilledButton.icon(
+                            onPressed: _ruleMatches.isEmpty
+                                ? null
+                                : _saveRulePlaylist,
+                            icon: const Icon(Icons.playlist_add_rounded),
+                            label: const Text('Save as playlist'),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -137,7 +174,7 @@ class _PowerToolsScreenState extends State<PowerToolsScreen> {
                       style: TextStyle(fontWeight: FontWeight.w700),
                     ),
                     subtitle: const Text(
-                      'Themes, rules, tags, bookmarks, and playlists',
+                      'Themes, favorites, rules, tags, bookmarks, and playlists',
                     ),
                     onTap: _export,
                   ),
@@ -160,7 +197,7 @@ class _PowerToolsScreenState extends State<PowerToolsScreen> {
   Future<void> _scanDuplicates() async {
     setState(() => _scanning = true);
     final result = await AudioFingerprintService().findDuplicates(
-      widget.player.queue,
+      widget.library,
     );
     if (!mounted) return;
     setState(() {
@@ -180,10 +217,10 @@ class _PowerToolsScreenState extends State<PowerToolsScreen> {
   }
 
   void _showDuplicateResults(List<DuplicateGroup> groups) {
-    final byId = {for (final track in widget.player.queue) track.id: track};
+    final byId = {for (final track in widget.library) track.id: track};
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AppTheme.surfaceHigh,
+      backgroundColor: AppTheme.surfaceHighOf(context),
       showDragHandle: true,
       isScrollControlled: true,
       builder: (context) => SizedBox(
@@ -228,6 +265,7 @@ class _PowerToolsScreenState extends State<PowerToolsScreen> {
   }
 
   void _editCustomTags() {
+    if (widget.player.current.isEmpty) return;
     final mood = TextEditingController(
       text: widget.phaseTwo.customTagsFor(widget.player.current.id)['mood'],
     );
@@ -237,7 +275,7 @@ class _PowerToolsScreenState extends State<PowerToolsScreen> {
     showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppTheme.surfaceHigh,
+        backgroundColor: AppTheme.surfaceHighOf(context),
         title: Text('Tags • ${widget.player.current.title}'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -290,78 +328,198 @@ class _PowerToolsScreenState extends State<PowerToolsScreen> {
     final rule = await showDialog<PlaylistRule>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Add playlist condition'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<RuleField>(
-                initialValue: field,
-                decoration: const InputDecoration(labelText: 'Field'),
-                items: RuleField.values
-                    .map(
-                      (item) =>
-                          DropdownMenuItem(value: item, child: Text(item.name)),
-                    )
-                    .toList(),
-                onChanged: (item) =>
-                    item == null ? null : setDialogState(() => field = item),
+        builder: (context, setDialogState) {
+          final operators = _operatorsFor(field);
+          return AlertDialog(
+            title: const Text('Add playlist condition'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<RuleField>(
+                  initialValue: field,
+                  decoration: const InputDecoration(labelText: 'Field'),
+                  items: RuleField.values
+                      .map(
+                        (item) => DropdownMenuItem(
+                          value: item,
+                          child: Text(_fieldLabel(item)),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (item) {
+                    if (item == null) return;
+                    setDialogState(() {
+                      field = item;
+                      if (!_operatorsFor(field).contains(operator)) {
+                        operator = RuleOperator.equals;
+                      }
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<RuleOperator>(
+                  key: ValueKey('$field-$operator'),
+                  initialValue: operator,
+                  decoration: const InputDecoration(labelText: 'Condition'),
+                  items: operators
+                      .map(
+                        (item) => DropdownMenuItem(
+                          value: item,
+                          child: Text(_operatorLabel(item)),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (item) {
+                    if (item != null) {
+                      setDialogState(() => operator = item);
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: value,
+                  autofocus: true,
+                  keyboardType:
+                      field == RuleField.year ||
+                          field == RuleField.rating ||
+                          field == RuleField.duration
+                      ? const TextInputType.numberWithOptions(decimal: true)
+                      : TextInputType.text,
+                  decoration: InputDecoration(
+                    labelText: field == RuleField.duration
+                        ? 'Minutes'
+                        : 'Value',
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
               ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<RuleOperator>(
-                initialValue: operator,
-                decoration: const InputDecoration(labelText: 'Condition'),
-                items: RuleOperator.values
-                    .map(
-                      (item) =>
-                          DropdownMenuItem(value: item, child: Text(item.name)),
-                    )
-                    .toList(),
-                onChanged: (item) =>
-                    item == null ? null : setDialogState(() => operator = item),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: value,
-                autofocus: true,
-                decoration: const InputDecoration(labelText: 'Value'),
+              FilledButton(
+                onPressed: () {
+                  if (value.text.trim().isEmpty) return;
+                  Navigator.pop(
+                    dialogContext,
+                    PlaylistRule(
+                      field: field,
+                      operator: operator,
+                      value: value.text.trim(),
+                    ),
+                  );
+                },
+                child: const Text('Add'),
               ),
             ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (value.text.trim().isEmpty) return;
-                Navigator.pop(
-                  dialogContext,
-                  PlaylistRule(
-                    field: field,
-                    operator: operator,
-                    value: value.text.trim(),
-                  ),
-                );
-              },
-              child: const Text('Add'),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
     value.dispose();
     if (rule != null) widget.phaseTwo.addRule(rule);
   }
 
+  List<Track> get _ruleMatches {
+    final rules = widget.phaseTwo.playlistRules;
+    if (rules.isEmpty) return const [];
+    return widget.library
+        .where((track) => rules.every((rule) => rule.matches(track)))
+        .toList(growable: false);
+  }
+
+  void _showRuleMatches() {
+    final matches = _ruleMatches;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SizedBox(
+        height: MediaQuery.sizeOf(sheetContext).height * .72,
+        child: Column(
+          children: [
+            ListTile(
+              title: const Text(
+                'Matching tracks',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              subtitle: Text('${matches.length} tracks match every condition'),
+              trailing: FilledButton.icon(
+                onPressed: () {
+                  widget.player.playTrack(matches.first, from: matches);
+                  Navigator.pop(sheetContext);
+                },
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: const Text('Play'),
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                itemCount: matches.length,
+                itemBuilder: (context, index) {
+                  final track = matches[index];
+                  return ListTile(
+                    title: Text(track.title),
+                    subtitle: Text('${track.artist} • ${track.album}'),
+                    onTap: () => widget.player.playTrack(track, from: matches),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _saveRulePlaylist() async {
+    final name = TextEditingController(text: 'Rule matches');
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Save matching tracks'),
+        content: TextField(
+          controller: name,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Playlist name'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    final playlistName = name.text.trim();
+    name.dispose();
+    if (accepted != true || playlistName.isEmpty) return;
+    final id = widget.phaseTwo.createPlaylist(playlistName);
+    widget.phaseTwo.addTracksToPlaylist(
+      id,
+      _ruleMatches.map((track) => track.id),
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('$playlistName saved to Playlists')));
+  }
+
   Future<void> _export() async {
     final path = await widget.phaseTwo.exportBackup();
-    if (mounted && path != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Auralis backup exported')));
-    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          path == null ? 'Backup export canceled' : 'Auralis backup exported',
+        ),
+      ),
+    );
   }
 
   Future<void> _import() async {
@@ -378,6 +536,32 @@ class _PowerToolsScreenState extends State<PowerToolsScreen> {
   }
 }
 
+List<RuleOperator> _operatorsFor(RuleField field) =>
+    field == RuleField.genre || field == RuleField.artist
+    ? const [RuleOperator.equals, RuleOperator.contains]
+    : const [
+        RuleOperator.equals,
+        RuleOperator.greaterThan,
+        RuleOperator.lessThan,
+        RuleOperator.atLeast,
+      ];
+
+String _fieldLabel(RuleField field) => switch (field) {
+  RuleField.genre => 'Genre',
+  RuleField.year => 'Year',
+  RuleField.rating => 'Rating',
+  RuleField.artist => 'Artist',
+  RuleField.duration => 'Duration (minutes)',
+};
+
+String _operatorLabel(RuleOperator operator) => switch (operator) {
+  RuleOperator.equals => 'Equals',
+  RuleOperator.contains => 'Contains',
+  RuleOperator.greaterThan => 'Greater than',
+  RuleOperator.lessThan => 'Less than',
+  RuleOperator.atLeast => 'At least',
+};
+
 class _IntroCard extends StatelessWidget {
   const _IntroCard({required this.accent});
   final Color accent;
@@ -386,27 +570,30 @@ class _IntroCard extends StatelessWidget {
     padding: const EdgeInsets.all(18),
     decoration: BoxDecoration(
       gradient: LinearGradient(
-        colors: [accent.withValues(alpha: .22), AppTheme.surface],
+        colors: [accent.withValues(alpha: .22), AppTheme.surfaceOf(context)],
       ),
       borderRadius: BorderRadius.circular(20),
       border: Border.all(color: accent.withValues(alpha: .2)),
     ),
-    child: const Row(
+    child: Row(
       children: [
-        Icon(Icons.construction_rounded, size: 32),
-        SizedBox(width: 14),
+        const Icon(Icons.construction_rounded, size: 32),
+        const SizedBox(width: 14),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              const Text(
                 'Manual tools, transparent changes',
                 style: TextStyle(fontWeight: FontWeight.w800),
               ),
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Text(
-                'Every library edit is previewed and user-controlled.',
-                style: TextStyle(color: AppTheme.muted, fontSize: 12),
+                'Review duplicate results, tags, and rule matches before saving.',
+                style: TextStyle(
+                  color: AppTheme.mutedOf(context),
+                  fontSize: 12,
+                ),
               ),
             ],
           ),
@@ -424,10 +611,10 @@ class _Label extends StatelessWidget {
     padding: const EdgeInsets.only(left: 3, bottom: 8),
     child: Text(
       value,
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 10,
         letterSpacing: 1.4,
-        color: AppTheme.muted,
+        color: AppTheme.mutedOf(context),
         fontWeight: FontWeight.w800,
       ),
     ),
@@ -439,11 +626,11 @@ class _Panel extends StatelessWidget {
   final Widget child;
   @override
   Widget build(BuildContext context) => Material(
-    color: AppTheme.surface,
+    color: AppTheme.surfaceOf(context),
     clipBehavior: Clip.antiAlias,
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(20),
-      side: BorderSide(color: Colors.white.withValues(alpha: .05)),
+      side: BorderSide(color: AppTheme.outlineOf(context)),
     ),
     child: child,
   );

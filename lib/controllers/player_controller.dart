@@ -4,11 +4,11 @@ import 'dart:math';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:just_audio_background/just_audio_background.dart';
 
 import '../models/track.dart';
 import '../models/phase_three_models.dart';
 import '../services/home_widget_service.dart';
+import '../services/media_session_item_factory.dart';
 
 enum PlaybackRepeatMode { off, all, one }
 
@@ -28,8 +28,11 @@ class PlayerController extends ChangeNotifier {
   Timer? _recoveryLoadTimer;
   Timer? _widgetDebounce;
   int _nativeLoadGeneration = 0;
+  int _queueRevision = 0;
   Future<void> _nativeLoadQueue = Future<void>.value();
   String? _loadedTrackId;
+  List<String> _nativePlaylistTrackIds = const [];
+  bool _nativePlaylistReady = false;
   String? _appliedOutputProfileId;
   double? _appliedOutputProfileVolume;
   List<Track> _queue;
@@ -61,6 +64,8 @@ class PlayerController extends ChangeNotifier {
   Duration? Function(String trackId)? resumePositionResolver;
   ValueChanged<Track>? onTrackStarted;
   void Function(String trackId, Duration elapsed)? onListening;
+  ValueChanged<Set<String>>? onFavoritesChanged;
+  ValueChanged<double>? onVolumeChanged;
 
   Track get current => _current;
   List<Track> get queue => List.unmodifiable(_queue);
@@ -81,6 +86,8 @@ class PlayerController extends ChangeNotifier {
   bool get bitPerfectActive =>
       _bitPerfectRequested && _current.isLossless && speed == 1;
   String get outputProfileName => _outputProfileName;
+  Set<String> get favoriteIds => Set.unmodifiable(_favoriteIds);
+  int get queueRevision => _queueRevision;
 
   bool isFavorite(Track track) => _favoriteIds.contains(track.id);
 
@@ -92,9 +99,12 @@ class PlayerController extends ChangeNotifier {
     if (tracks.isEmpty) {
       _nativeLoadGeneration++;
       _loadedTrackId = null;
+      _nativePlaylistReady = false;
+      _nativePlaylistTrackIds = const [];
       _ticker?.cancel();
       _recoveryLoadTimer?.cancel();
       _queue = const [Track.empty];
+      _queueRevision++;
       _current = Track.empty;
       _position = Duration.zero;
       _lastStatsPosition = Duration.zero;
@@ -123,6 +133,7 @@ class PlayerController extends ChangeNotifier {
     } else {
       _nativeLoadGeneration++;
       _loadedTrackId = null;
+      _nativePlaylistReady = false;
       _ticker?.cancel();
       _recoveryLoadTimer?.cancel();
       unawaited(_audioPlayer.stop());
@@ -141,23 +152,32 @@ class PlayerController extends ChangeNotifier {
         _queueNativeTrackLoad(_current, generation: generation);
       }
     }
+    _queueRevision++;
     notifyListeners();
   }
 
   void updateTrack(Track updated) {
     final index = _queue.indexWhere((track) => track.id == updated.id);
-    if (index >= 0) _queue[index] = updated;
+    if (index >= 0) {
+      _queue[index] = updated;
+      _queueRevision++;
+    }
     if (_current.id == updated.id) _current = updated;
     notifyListeners();
   }
 
   void playTrack(Track track, {List<Track>? from, Duration? initialPosition}) {
     _recoveryLoadTimer?.cancel();
+    if (from != null && from.isNotEmpty) {
+      _queue = List<Track>.from(from);
+      _queueRevision++;
+    }
+    final canSeekLoadedPlaylist =
+        track.isDeviceTrack && _nativePlaylistMatchesQueue();
     final isTrackChange = _current.id != track.id;
     if (isTrackChange) _speed = 1;
     final loadGeneration = ++_nativeLoadGeneration;
     _loadedTrackId = null;
-    if (from != null && from.isNotEmpty) _queue = List<Track>.from(from);
     _current = track;
     final startPosition =
         initialPosition ??
@@ -174,7 +194,16 @@ class PlayerController extends ChangeNotifier {
     if (track.isDeviceTrack) {
       _ticker?.cancel();
       _usingNativeAudio = true;
-      _queueNativeTrackLoad(track, generation: loadGeneration);
+      if (canSeekLoadedPlaylist) {
+        _queueNativePlaylistSeek(
+          track,
+          generation: loadGeneration,
+          position: startPosition,
+        );
+      } else {
+        _nativePlaylistReady = false;
+        _queueNativeTrackLoad(track, generation: loadGeneration);
+      }
     } else {
       _usingNativeAudio = false;
       _loadedTrackId = null;
@@ -285,17 +314,31 @@ class PlayerController extends ChangeNotifier {
 
   void toggleShuffle() {
     _shuffle = !_shuffle;
+    if (_usingNativeAudio && _loadedTrackId == _current.id) {
+      unawaited(_audioPlayer.setShuffleModeEnabled(_shuffle));
+    }
     notifyListeners();
   }
 
   void cycleRepeat() {
     _repeatMode = PlaybackRepeatMode
         .values[(_repeatMode.index + 1) % PlaybackRepeatMode.values.length];
+    if (_usingNativeAudio && _loadedTrackId == _current.id) {
+      unawaited(_applyNativeRepeatMode());
+    }
     notifyListeners();
   }
 
   void toggleFavorite(Track track) {
     if (!_favoriteIds.add(track.id)) _favoriteIds.remove(track.id);
+    onFavoritesChanged?.call(Set<String>.from(_favoriteIds));
+    notifyListeners();
+  }
+
+  void restoreFavorites(Iterable<String> trackIds) {
+    _favoriteIds
+      ..clear()
+      ..addAll(trackIds);
     notifyListeners();
   }
 
@@ -310,6 +353,7 @@ class PlayerController extends ChangeNotifier {
   void setVolume(double value) {
     _volume = value.clamp(0, _volumeLimit);
     unawaited(_applyNativeVolume());
+    onVolumeChanged?.call(_volume);
     notifyListeners();
   }
 
@@ -367,6 +411,7 @@ class PlayerController extends ChangeNotifier {
   }) {
     if (queue.isEmpty) return;
     _queue = List<Track>.from(queue);
+    _queueRevision++;
     final recoveredCurrent = queue.where((track) => track.id == currentId);
     final restoredExactTrack = recoveredCurrent.isNotEmpty;
     _current = restoredExactTrack ? recoveredCurrent.first : queue.first;
@@ -381,6 +426,7 @@ class PlayerController extends ChangeNotifier {
     _isPlaying = false;
     _playRequested = false;
     _loadedTrackId = null;
+    _nativePlaylistReady = false;
     _usingNativeAudio = _current.isDeviceTrack;
     if (_usingNativeAudio) {
       _recoveryLoadTimer?.cancel();
@@ -399,6 +445,9 @@ class PlayerController extends ChangeNotifier {
   }) {
     _stopAfterCurrentTrack = afterCurrentTrack;
     _stopAfterQueue = afterQueue;
+    if (_usingNativeAudio && _loadedTrackId == _current.id) {
+      unawaited(_applyNativeRepeatMode());
+    }
   }
 
   void setCrossfade(double value) {
@@ -410,53 +459,51 @@ class PlayerController extends ChangeNotifier {
     _queue.removeWhere((item) => item.id == track.id);
     final index = _queue.indexWhere((item) => item.id == _current.id);
     _queue.insert(index + 1, track);
+    _queueRevision++;
+    _reloadNativePlaylistPreservingState();
     notifyListeners();
   }
 
   void removeFromQueue(Track track) {
     if (_queue.length == 1 || track.id == _current.id) return;
     _queue.removeWhere((item) => item.id == track.id);
+    _queueRevision++;
+    _reloadNativePlaylistPreservingState();
     notifyListeners();
   }
 
   void reorderQueue(int oldIndex, int newIndex) {
+    if (oldIndex < 0 || oldIndex >= _queue.length) return;
+    if (newIndex > oldIndex) newIndex--;
+    if (newIndex < 0 || newIndex >= _queue.length) return;
     final item = _queue.removeAt(oldIndex);
     _queue.insert(newIndex, item);
+    _queueRevision++;
+    _reloadNativePlaylistPreservingState();
     notifyListeners();
   }
 
   Future<void> _loadNativeTrack(Track track, {required int generation}) async {
     try {
-      final rawUri = track.sourceUri;
-      final uri = rawUri != null
-          ? Uri.parse(rawUri)
-          : Uri.file(track.filePath!);
-      final baseSource = AudioSource.uri(
-        uri,
-        tag: MediaItem(
-          id: track.id,
-          title: track.title,
-          artist: track.artist,
-          album: track.album,
-          duration: track.duration,
-          extras: {
-            'filePath': track.filePath,
-            'replayGainDb': track.replayGainDb,
-          },
-        ),
+      final nativeTracks = _queue.where((item) => item.isDeviceTrack).toList();
+      final initialIndex = nativeTracks.indexWhere(
+        (item) => item.id == track.id,
       );
-      final AudioSource source = track.cueStart == null
-          ? baseSource
-          : ClippingAudioSource(
-              child: baseSource,
-              start: track.cueStart,
-              end: track.cueEnd,
-            );
+      if (initialIndex < 0) {
+        throw StateError('The selected track is not in the playable queue.');
+      }
+      final sources = nativeTracks.map(_audioSourceForTrack).toList();
       final loadPosition = _position > track.duration
           ? track.duration
           : _position;
-      await _audioPlayer.setAudioSource(source, initialPosition: loadPosition);
+      _nativePlaylistTrackIds = nativeTracks.map((item) => item.id).toList();
+      await _audioPlayer.setAudioSources(
+        sources,
+        initialIndex: initialIndex,
+        initialPosition: loadPosition,
+      );
       if (!_isLatestNativeLoad(track, generation)) return;
+      _nativePlaylistReady = true;
       final pendingPosition = _position > track.duration
           ? track.duration
           : _position;
@@ -467,6 +514,10 @@ class PlayerController extends ChangeNotifier {
       _loadedTrackId = track.id;
       await _audioPlayer.setSpeed(_speed);
       if (!_isLatestNativeLoad(track, generation)) return;
+      await _audioPlayer.setShuffleModeEnabled(_shuffle);
+      if (!_isLatestNativeLoad(track, generation)) return;
+      await _applyNativeRepeatMode();
+      if (!_isLatestNativeLoad(track, generation)) return;
       await _audioPlayer.setSkipSilenceEnabled(_silenceCalibration);
       if (!_isLatestNativeLoad(track, generation)) return;
       await _applyNativeVolume();
@@ -475,12 +526,81 @@ class PlayerController extends ChangeNotifier {
       }
     } catch (error) {
       if (!_isLatestNativeLoad(track, generation)) return;
+      _nativePlaylistReady = false;
       _isPlaying = false;
       _playRequested = false;
       _loadedTrackId = null;
       _playbackError = 'Could not play ${track.title}: $error';
       notifyListeners();
     }
+  }
+
+  AudioSource _audioSourceForTrack(Track track) {
+    final rawUri = track.sourceUri;
+    final uri = rawUri != null ? Uri.parse(rawUri) : Uri.file(track.filePath!);
+    final mediaItem = MediaSessionItemFactory.fromTrack(track);
+    final baseSource = AudioSource.uri(uri, tag: mediaItem);
+    return track.cueStart == null
+        ? baseSource
+        : ClippingAudioSource(
+            child: baseSource,
+            start: track.cueStart,
+            end: track.cueEnd,
+            tag: mediaItem,
+            duration: track.duration,
+          );
+  }
+
+  bool _nativePlaylistMatchesQueue() =>
+      _nativePlaylistReady &&
+      listEquals(
+        _nativePlaylistTrackIds,
+        _queue
+            .where((track) => track.isDeviceTrack)
+            .map((track) => track.id)
+            .toList(),
+      );
+
+  void _queueNativePlaylistSeek(
+    Track track, {
+    required int generation,
+    required Duration position,
+  }) {
+    _nativeLoadQueue = _nativeLoadQueue.then((_) async {
+      if (!_isLatestNativeLoad(track, generation)) return;
+      final index = _nativePlaylistTrackIds.indexOf(track.id);
+      if (!_nativePlaylistReady || index < 0) {
+        await _loadNativeTrack(track, generation: generation);
+        return;
+      }
+      try {
+        await _audioPlayer.seek(position, index: index);
+        if (!_isLatestNativeLoad(track, generation)) return;
+        _loadedTrackId = track.id;
+        await _audioPlayer.setSpeed(_speed);
+        if (!_isLatestNativeLoad(track, generation)) return;
+        await _applyNativeVolume();
+        if (_playRequested && _isLatestNativeLoad(track, generation)) {
+          unawaited(_startNativePlayback(track, generation));
+        }
+        notifyListeners();
+      } catch (_) {
+        if (!_isLatestNativeLoad(track, generation)) return;
+        _nativePlaylistReady = false;
+        await _loadNativeTrack(track, generation: generation);
+      }
+    });
+    unawaited(_nativeLoadQueue);
+  }
+
+  void _reloadNativePlaylistPreservingState() {
+    if (!_usingNativeAudio || _current.isEmpty || !_current.isDeviceTrack) {
+      return;
+    }
+    _loadedTrackId = null;
+    _nativePlaylistReady = false;
+    final generation = ++_nativeLoadGeneration;
+    _queueNativeTrackLoad(_current, generation: generation);
   }
 
   bool _isLatestNativeLoad(Track track, int generation) =>
@@ -514,7 +634,20 @@ class PlayerController extends ChangeNotifier {
     );
   }
 
+  Future<void> _applyNativeRepeatMode() => _audioPlayer.setLoopMode(
+    _stopAfterCurrentTrack || _stopAfterQueue
+        ? LoopMode.off
+        : switch (_repeatMode) {
+            PlaybackRepeatMode.off => LoopMode.off,
+            PlaybackRepeatMode.all => LoopMode.all,
+            PlaybackRepeatMode.one => LoopMode.one,
+          },
+  );
+
   void _bindNativePlayer() {
+    _subscriptions.add(
+      _audioPlayer.currentIndexStream.listen(_handleNativeIndexChange),
+    );
     _subscriptions.add(
       _audioPlayer.positionStream.listen((value) {
         if (!_usingNativeAudio || _loadedTrackId != _current.id) return;
@@ -535,11 +668,10 @@ class PlayerController extends ChangeNotifier {
     _subscriptions.add(
       _audioPlayer.playerStateStream.listen((state) {
         if (!_usingNativeAudio || _loadedTrackId != _current.id) return;
-        // setAudioSource emits transient loading/ready states with playing=false.
-        // Keep the user's play intent through that transition.
-        if (state.playing || !_playRequested) {
-          _isPlaying = state.playing;
-        }
+        // Once a source is loaded the media session is authoritative. This
+        // keeps lock-screen, notification, headset and in-app buttons in sync.
+        _isPlaying = state.playing;
+        _playRequested = state.playing;
         if (state.processingState == ProcessingState.completed) {
           final currentIndex = _queue.indexWhere(
             (track) => track.id == _current.id,
@@ -550,6 +682,7 @@ class PlayerController extends ChangeNotifier {
             _isPlaying = false;
             _stopAfterCurrentTrack = false;
             _stopAfterQueue = false;
+            unawaited(_applyNativeRepeatMode());
           } else {
             _advanceToNext(fromCompletion: true);
           }
@@ -558,6 +691,43 @@ class PlayerController extends ChangeNotifier {
       }),
     );
     unawaited(_configureSession());
+  }
+
+  void _handleNativeIndexChange(int? index) {
+    if (!_usingNativeAudio ||
+        _loadedTrackId == null ||
+        index == null ||
+        index < 0 ||
+        index >= _nativePlaylistTrackIds.length) {
+      return;
+    }
+    final trackId = _nativePlaylistTrackIds[index];
+    if (trackId == _current.id) return;
+    final matches = _queue.where((track) => track.id == trackId);
+    if (matches.isEmpty) return;
+
+    if (_stopAfterCurrentTrack) {
+      _stopAfterCurrentTrack = false;
+      _playRequested = false;
+      _isPlaying = false;
+      unawaited(_audioPlayer.pause());
+      unawaited(_applyNativeRepeatMode());
+    }
+
+    _current = matches.first;
+    _loadedTrackId = trackId;
+    _position = Duration.zero;
+    _lastStatsPosition = Duration.zero;
+    _loopA = null;
+    _loopB = null;
+    _playbackError = null;
+    if (_speed != 1) {
+      _speed = 1;
+      unawaited(_audioPlayer.setSpeed(1));
+    }
+    unawaited(_applyNativeVolume());
+    onTrackStarted?.call(_current);
+    notifyListeners();
   }
 
   Future<void> _configureSession() async {

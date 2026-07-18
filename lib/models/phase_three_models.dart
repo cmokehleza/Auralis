@@ -10,6 +10,12 @@ enum AuralisDisplayMode { full, simplified }
 
 enum AppIconTheme { system, light, dark, seasonal }
 
+/// User-controlled wallpaper source for the app's shared visual backdrop.
+enum AppBackgroundMode { defaultTheme, dynamic, customImage, theme }
+
+/// Curated backgrounds that remain readable in both light and dark themes.
+enum AppBackgroundTheme { aurora, midnight, sunset, graphite }
+
 class OutputProfile {
   const OutputProfile({
     required this.id,

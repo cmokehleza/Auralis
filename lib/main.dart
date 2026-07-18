@@ -13,6 +13,7 @@ import 'screens/app_shell.dart';
 import 'screens/onboarding_screen.dart';
 import 'services/device_library_service.dart';
 import 'services/library_repository.dart';
+import 'services/notification_artwork_service.dart';
 import 'services/phase_three_services.dart';
 import 'theme/app_motion.dart';
 import 'theme/app_theme.dart';
@@ -20,12 +21,20 @@ import 'widgets/brand_splash.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await NotificationArtworkService.prepareFallback();
   await JustAudioBackground.init(
+    androidResumeOnClick: true,
     androidNotificationChannelId: 'com.auralis.player.audio',
     androidNotificationChannelName: 'Auralis playback',
+    androidNotificationChannelDescription:
+        'Playback controls and information for the current song',
     androidNotificationOngoing: true,
-    androidShowNotificationBadge: true,
+    androidShowNotificationBadge: false,
+    androidStopForegroundOnPause: false,
     androidNotificationIcon: 'drawable/ic_stat_auralis',
+    notificationColor: const Color(0xFF68D7FF),
+    artDownscaleWidth: 512,
+    artDownscaleHeight: 512,
   );
   runApp(const AuralisApp());
 }
@@ -45,6 +54,14 @@ class _AuralisAppState extends State<AuralisApp> {
   late final PhaseThreeController _phaseThree;
   late final PhaseThreeServices _services;
   Timer? _checkpointTimer;
+  Timer? _volumeMemoryTimer;
+  int _lastRecoveryQueueRevision = -1;
+  String? _lastRecoveryTrackId;
+  String? _lastPositionCheckpointTrackId;
+  int? _lastPositionCheckpointSecond;
+  Duration? _lastObservedPosition;
+  bool _lastPlaybackWasPlaying = false;
+  bool _recoveryReady = false;
   bool _ready = false;
 
   @override
@@ -72,12 +89,15 @@ class _AuralisAppState extends State<AuralisApp> {
       ..resumePositionResolver = _phaseTwo.resumePositionFor
       ..onTrackStarted = _phaseThree.recordTrackStarted
       ..onListening = _phaseThree.recordListening
+      ..onFavoritesChanged = _phaseTwo.setFavoriteIds
+      ..onVolumeChanged = _rememberVolume
       ..addListener(_checkpointPlayer);
     unawaited(_restore());
   }
 
   Future<void> _restore() async {
     await Future.wait([_phaseTwo.restore(), _phaseThree.restore()]);
+    _player.restoreFavorites(_phaseTwo.favoriteIds);
     var liveTracks = <Track>[];
     var libraryScanSucceeded = false;
     if (_phaseThree.onboardingComplete) {
@@ -114,6 +134,12 @@ class _AuralisAppState extends State<AuralisApp> {
       }
     }
     _applySettings();
+    _recoveryReady = true;
+    _checkpointPlayer();
+    _checkpointTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _checkpointPosition(),
+    );
     if (mounted) setState(() => _ready = true);
   }
 
@@ -138,21 +164,74 @@ class _AuralisAppState extends State<AuralisApp> {
   }
 
   void _checkpointPlayer() {
-    if (_player.current.isEmpty) return;
-    if (_checkpointTimer?.isActive == true) return;
-    _checkpointTimer = Timer(const Duration(seconds: 3), () {
+    if (!_recoveryReady || _player.current.isEmpty) return;
+    final currentId = _player.current.id;
+    final currentPosition = _player.position;
+    final queueChanged = _lastRecoveryQueueRevision != _player.queueRevision;
+    final trackChanged = _lastRecoveryTrackId != currentId;
+    final recoveryTrackMissing =
+        !queueChanged &&
+        trackChanged &&
+        !_phaseThree.recoveryQueue.any((track) => track.id == currentId);
+    final playbackStopped = _lastPlaybackWasPlaying && !_player.isPlaying;
+    final positionJumped =
+        !trackChanged &&
+        _lastObservedPosition != null &&
+        (currentPosition - _lastObservedPosition!).abs() >=
+            const Duration(seconds: 5);
+
+    _lastRecoveryQueueRevision = _player.queueRevision;
+    _lastRecoveryTrackId = currentId;
+    _lastPlaybackWasPlaying = _player.isPlaying;
+    _lastObservedPosition = currentPosition;
+
+    if (queueChanged || recoveryTrackMissing) {
       _phaseThree.saveRecoverySession(
         queue: _player.queue,
-        currentId: _player.current.id,
-        position: _player.position,
+        currentId: currentId,
+        position: currentPosition,
         screenIndex: _phaseThree.lastScreenIndex,
       );
+      _rememberPositionCheckpoint(currentId, currentPosition);
+    } else if (trackChanged || playbackStopped || positionJumped) {
+      _savePositionCheckpoint(currentId, currentPosition);
+    }
+  }
+
+  void _checkpointPosition() {
+    if (!_recoveryReady || _player.current.isEmpty) return;
+    final currentId = _player.current.id;
+    final position = _player.position;
+    if (_lastPositionCheckpointTrackId == currentId &&
+        _lastPositionCheckpointSecond == position.inSeconds) {
+      return;
+    }
+    _savePositionCheckpoint(currentId, position);
+  }
+
+  void _savePositionCheckpoint(String currentId, Duration position) {
+    _rememberPositionCheckpoint(currentId, position);
+    unawaited(_phaseThree.saveRecoveryPosition(currentId, position));
+  }
+
+  void _rememberPositionCheckpoint(String currentId, Duration position) {
+    _lastPositionCheckpointTrackId = currentId;
+    _lastPositionCheckpointSecond = position.inSeconds;
+  }
+
+  void _rememberVolume(double volume) {
+    _volumeMemoryTimer?.cancel();
+    _volumeMemoryTimer = Timer(const Duration(milliseconds: 450), () {
+      final active = _phaseThree.activeOutput;
+      if ((active.volume - volume).abs() < .001) return;
+      _phaseThree.updateOutput(active.copyWith(volume: volume));
     });
   }
 
   @override
   void dispose() {
     _checkpointTimer?.cancel();
+    _volumeMemoryTimer?.cancel();
     _player
       ..removeListener(_checkpointPlayer)
       ..dispose();
@@ -181,6 +260,18 @@ class _AuralisAppState extends State<AuralisApp> {
         GlobalCupertinoLocalizations.delegate,
       ],
       theme:
+          AppTheme.light(
+            accent: _phaseTwo.accent,
+            highContrast: _phaseTwo.highContrast,
+          ).copyWith(
+            materialTapTargetSize: _phaseThree.largeTapTargets
+                ? MaterialTapTargetSize.padded
+                : MaterialTapTargetSize.shrinkWrap,
+            visualDensity: _phaseThree.largeTapTargets
+                ? const VisualDensity(horizontal: 1, vertical: 1)
+                : VisualDensity.standard,
+          ),
+      darkTheme:
           AppTheme.dark(
             accent: _phaseTwo.accent,
             highContrast: _phaseTwo.highContrast,
@@ -192,6 +283,7 @@ class _AuralisAppState extends State<AuralisApp> {
                 ? const VisualDensity(horizontal: 1, vertical: 1)
                 : VisualDensity.standard,
           ),
+      themeMode: _phaseTwo.themeMode,
       home: Builder(
         builder: (context) {
           final Widget destination;
@@ -204,7 +296,7 @@ class _AuralisAppState extends State<AuralisApp> {
               onScan: () async {
                 final result = await _services.largeLibrary
                     .rescanInBackground();
-                if (result.tracks.isNotEmpty) {
+                if (result.permissionGranted && result.error == null) {
                   LibraryRepository.replaceWithDeviceTracks(result.tracks);
                   _player.replaceLibrary(result.tracks);
                 }

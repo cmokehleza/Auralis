@@ -1,10 +1,9 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:file_selector/file_selector.dart';
-
 import '../models/phase_three_models.dart';
 import '../models/track.dart';
+import 'platform_file_service.dart';
 
 class ReportExportService {
   const ReportExportService();
@@ -39,19 +38,12 @@ class ReportExportService {
     List<Track> tracks,
     Map<String, TrackListeningStat> stats,
   ) async {
-    const type = XTypeGroup(label: 'CSV report', extensions: ['csv']);
-    final location = await getSaveLocation(
+    return PlatformFileService.saveBytes(
+      bytes: Uint8List.fromList(utf8.encode(libraryCsv(tracks, stats))),
       suggestedName: 'auralis-library-report.csv',
-      acceptedTypeGroups: const [type],
-    );
-    if (location == null) return null;
-    final file = XFile.fromData(
-      Uint8List.fromList(utf8.encode(libraryCsv(tracks, stats))),
-      name: 'auralis-library-report.csv',
       mimeType: 'text/csv',
+      extensions: const ['csv'],
     );
-    await file.saveTo(location.path);
-    return location.path;
   }
 
   String _csv(String value) =>

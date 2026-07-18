@@ -30,7 +30,7 @@ class _SpectrumVisualizerState extends State<SpectrumVisualizer>
     with TickerProviderStateMixin {
   late final AnimationController _clock = AnimationController(
     vsync: this,
-    duration: const Duration(seconds: 12),
+    duration: const Duration(milliseconds: 4800),
   );
   late final AnimationController _activity = AnimationController(
     vsync: this,
@@ -146,6 +146,7 @@ class _SpectrumVisualizerState extends State<SpectrumVisualizer>
               previousSeed: () => _previousSeed,
               barCount: widget.barCount,
               color: color,
+              idleColor: AppTheme.mutedOf(context),
             ),
           ),
         ),
@@ -164,6 +165,7 @@ class _SpectrumPainter extends CustomPainter {
     required this.previousSeed,
     required this.barCount,
     required this.color,
+    required this.idleColor,
   }) : super(repaint: repaint);
 
   final Animation<double> progress;
@@ -173,13 +175,14 @@ class _SpectrumPainter extends CustomPainter {
   final int Function() previousSeed;
   final int barCount;
   final Color color;
+  final Color idleColor;
 
   @override
   void paint(Canvas canvas, Size size) {
     final energy = activity.value.clamp(0.0, 1.0);
     final paint = Paint()
       ..color = Color.lerp(
-        AppTheme.muted.withValues(alpha: .34),
+        idleColor.withValues(alpha: .34),
         color,
         .2 + energy * .8,
       )!;
@@ -232,5 +235,7 @@ class _SpectrumPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _SpectrumPainter oldDelegate) =>
-      oldDelegate.barCount != barCount || oldDelegate.color != color;
+      oldDelegate.barCount != barCount ||
+      oldDelegate.color != color ||
+      oldDelegate.idleColor != idleColor;
 }

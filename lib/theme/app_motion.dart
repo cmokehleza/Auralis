@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 abstract final class AppMotion {
   static const fast = Duration(milliseconds: 180);
   static const standard = Duration(milliseconds: 320);
-  static const emphasized = Duration(milliseconds: 480);
+  static const emphasized = Duration(milliseconds: 420);
 
   static bool reduced(BuildContext context) {
     final media = MediaQuery.maybeOf(context);
@@ -32,18 +32,12 @@ abstract final class AppMotion {
           curve: const _DampedSpringCurve(),
           reverseCurve: Curves.easeInCubic,
         );
-        return FadeTransition(
-          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, .08),
-              end: Offset.zero,
-            ).animate(entrance),
-            child: ScaleTransition(
-              scale: Tween<double>(begin: .985, end: 1).animate(entrance),
-              child: child,
-            ),
-          ),
+        return SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, .055),
+            end: Offset.zero,
+          ).animate(entrance),
+          child: child,
         );
       },
     );
